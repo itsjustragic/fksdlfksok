@@ -1,6 +1,6 @@
 # main.py - FastAPI backend with Jinja templates
 
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Body, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,8 +9,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import List, Dict
 import uuid
 import uvicorn
-import asyncio
 import httpx
+import asyncio
+# add at top with other imports
 import re
 
 app = FastAPI()
@@ -58,6 +59,7 @@ def submit_report(report: Dict = Body(...)):
     pending_reports.append(report)
     return {"message": "Report submitted for review"}
 
+
 # ----------------------------
 # replace the approve handler with this version
 @app.post("/approve/{report_id}")
@@ -97,6 +99,7 @@ def approve(request: Request, report_id: str):
             return RedirectResponse("/admin/pending", status_code=303)
 
     raise HTTPException(status_code=404, detail="Report not found")
+
 
 @app.post("/deny/{report_id}")
 def deny(request: Request, report_id: str):
@@ -159,4 +162,3 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
