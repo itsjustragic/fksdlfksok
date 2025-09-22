@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Pending Reports - Charlie Kirk Memorial</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -19,54 +19,64 @@
             </nav>
         </div>
     </header>
-    <section class="reports-section">
-        <h2>Pending Reports</h2>
+
+    <main class="reports-section">
+        <div class="section-header">
+            <h2>Pending Reports</h2>
+            <p class="subtitle">Queued for review — approve or deny.</p>
+        </div>
+
         <div class="reports-grid">
             {% for report in reports %}
-            <div class="report-card">
-                <div class="report-header">
-                    <h3>{{ report.full_name }}</h3>
-                </div>
-                <div class="report-details">
-                    <p><strong>Location:</strong> {{ report.location }}</p>
-                    <p><strong>Occupation:</strong> {{ report.occupation or 'N/A' }}</p>
-                    <p><strong>Employer:</strong> {{ report.employer or 'N/A' }}</p>
-                    <p><strong>Category:</strong> {{ report.category }}</p>
-                    <p><strong>Platform:</strong> {{ report.platform }}</p>
-                    <p><strong>Description:</strong> {{ report.description }}</p>
-                    <p><strong>Submitter Email:</strong> {{ report.email or 'N/A' }}</p>
-                </div>
-                <div class="report-evidence">
-                    <p><strong>Evidence:</strong></p>
-                    {% set ext = report.evidence_url.split('.')[-1]|lower %}
-                    {% if ext in ['jpg', 'jpeg', 'png', 'gif'] %}
-                    <img src="{{ report.evidence_url }}" alt="Evidence Image" class="evidence-image">
-                    {% else %}
-                    <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank">{{ report.evidence_url }}</a>
-                    {% endif %}
-                    {% if report.image_urls and report.image_urls|length > 0 %}
-                    <div class="evidence-gallery">
-                        {% for url in report.image_urls %}
-                        {% set img_ext = url.split('.')[-1]|lower %}
-                        {% if img_ext in ['jpg', 'jpeg', 'png', 'gif'] %}
-                        <img src="{{ url }}" alt="Additional Evidence" class="evidence-image">
-                        {% endif %}
-                        {% endfor %}
+            <article class="report-card" role="article" aria-labelledby="p-{{ report.id }}">
+                <header class="report-card-header">
+                    <h3 id="p-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
+                    <div class="meta">
+                        <span class="meta-item">{{ report.location or 'N/A' }}</span>
+                        <span class="meta-sep">•</span>
+                        <span class="meta-item">{{ report.platform or 'Unknown' }}</span>
                     </div>
-                    {% endif %}
+                </header>
+
+                <div class="report-card-body">
+                    <p class="small"><strong>Category:</strong> {{ report.category }}</p>
+                    <p class="desc">{{ report.description }}</p>
+
+                    <div class="report-evidence">
+                        {% set ext = report.evidence_url.split('.')[-1]|lower %}
+                        {% if report.evidence_url %}
+                            {% if ext in ['jpg','jpeg','png','gif'] %}
+                                <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image">
+                            {% else %}
+                                <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                            {% endif %}
+                        {% endif %}
+                        {% if report.image_urls and report.image_urls|length > 0 %}
+                        <div class="evidence-gallery">
+                            {% for url in report.image_urls %}
+                                {% set img_ext = url.split('.')[-1]|lower %}
+                                {% if img_ext in ['jpg','jpeg','png','gif'] %}
+                                    <img src="{{ url }}" alt="Additional evidence" class="thumb">
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
-                <div class="report-actions">
-                    <form action="/approve/{{ report.id }}" method="post">
-                        <button type="submit" class="admin-button">Approve</button>
+
+                <footer class="report-card-actions">
+                    <form action="/approve/{{ report.id }}" method="post" class="action-form">
+                        <button type="submit" class="admin-button small">Approve</button>
                     </form>
-                    <form action="/deny/{{ report.id }}" method="post">
-                        <button type="submit" class="deny-button">Deny</button>
+                    <form action="/deny/{{ report.id }}" method="post" class="action-form">
+                        <button type="submit" class="deny-button small">Deny</button>
                     </form>
-                </div>
-            </div>
+                </footer>
+            </article>
             {% endfor %}
         </div>
-    </section>
+    </main>
+
     <script src="/static/script.js"></script>
 </body>
 </html>
