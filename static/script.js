@@ -37,23 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-            try {
-                const response = await fetch('/submit_report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(report)
-                });
-                if (response.ok) {
-                    alert('Report submitted successfully!');
-                    reportForm.reset();
-                } else {
-                    alert('Error submitting report.');
-                }
-            } catch (err) {
-                alert('Error: ' + err);
-            }
-        });
-    }
 
     // Load approved reports on reports page
     const reportsList = document.getElementById('reports-list');
@@ -182,4 +165,5 @@ window.denyReport = async (reportId) => {
         alert('Error');
     }
 };
+
 
