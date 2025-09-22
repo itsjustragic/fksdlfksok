@@ -1,0 +1,75 @@
+<!-- report.html - Report submission form -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Evil - Charlie Kirk Memorial</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <h1>CHARLIE KIRK MEMORIAL</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="report.html">Report</a></li>
+                    <li><a href="reports.html">Reports</a></li>
+                    <li><a href="#">Memories</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+    <section class="report-section">
+        <div class="report-header">
+            <h2>REPORT EVIL</h2>
+            <p>Submit evidence of individuals who celebrated Charlie Kirk's death. All submissions are confidential and reviewed by our team.</p>
+        </div>
+        <form id="report-form">
+            <h3>SUBJECT INFORMATION</h3>
+            <label>Full Name *</label>
+            <input type="text" name="full_name" required>
+            <label>Location *</label>
+            <input type="text" name="location" placeholder="City, State/Country" required>
+            <label>Occupation</label>
+            <input type="text" name="occupation">
+            <label>Employer</label>
+            <input type="text" name="employer">
+
+            <h3>INCIDENT DETAILS</h3>
+            <label>Category *</label>
+            <select name="category" required>
+                <option>Direct Celebration of Death</option>
+                <option>Mocking Family/Friends</option>
+                <option>Calls for More Violence</option>
+                <option>Celebrating Memes</option>
+                <option>Threatening Similar Actions</option>
+                <option>Other</option>
+            </select>
+            <label>Platform *</label>
+            <select name="platform" required>
+                <option>X/Twitter/X</option>
+                <option>Facebook</option>
+                <option>Instagram</option>
+                <option>Tik Tok</option>
+                <option>YouTube</option>
+                <option>Other</option>
+            </select>
+            <label>Evidence URL *</label>
+            <input type="url" name="evidence_url" required>
+            <label>Image URLs (optional, one per line)</label>
+            <textarea name="image_urls"></textarea>
+            <label>Description *</label>
+            <textarea name="description" required></textarea>
+
+            <h3>CONTACT INFORMATION</h3>
+            <label>Your Email (optional)</label>
+            <input type="email" name="email">
+
+            <button type="submit">Submit</button>
+        </form>
+    </section>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!-- templates/report_detail.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ report.full_name }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/script.js"></script>
+</head>
+<body>
+    <header>
+        <h1>CHARLIE KIRK MEMORIAL</h1>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/report">Report</a>
+            <a href="/reports">Reports</a>
+            <a href="/memories">Memories</a>
+        </nav>
+    </header>
+    <section class="detail-header">
+        <h1>{{ report.full_name }}</h1>
+        <p class="detail-info">{{ report.location }} - {{ report.occupation }}</p>
+        <p>{{ report.employer }}</p>
+    </section>
+    <section class="evidence-section">
+        <h2>EVIDENCE</h2>
+        <div class="evidence-item">
+            <p>{{ report.description }}</p>
+            <a href="{{ report.evidence_url }}">{{ report.evidence_url }}</a>
+        </div>
+        {% for url in report.image_urls %}
+        <div class="evidence-item">
+            <img src="{{ url }}" alt="Evidence">
+        </div>
+        {% endfor %}
+    </section>
+</body>
+</html>
