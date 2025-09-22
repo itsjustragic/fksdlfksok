@@ -4,12 +4,12 @@ from fastapi import FastAPI, HTTPException, Body
 from fastapi.staticfiles import StaticFiles
 from typing import List, Dict
 import uvicorn
-
+import httpx
 app = FastAPI()
 
 pending_reports: List[Dict] = []
 approved_reports: List[Dict] = []
-
+SERVICE_URL = "https://q3os-jxyc.onrender.com"
 @app.post("/submit_report")
 def submit_report(report: Dict = Body(...)):
     pending_reports.append(report)
@@ -42,4 +42,5 @@ def get_approved():
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 if __name__ == "__main__":
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
