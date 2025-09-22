@@ -1,49 +1,59 @@
-/* style.css - Styles with animations */
-
 body {
     margin: 0;
     font-family: Arial, sans-serif;
-    background-color: #000;
-    color: #fff;
-    animation: fadeIn 1s ease-in;
+    background-color: #fff;
+    color: #000;
+    line-height: 1.6;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-header {
-    background-color: #333;
-    padding: 10px;
+.header {
+    background-color: #BF0A30; /* MAGA red */
+    padding: 1rem;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
 .header-container {
+    max-width: 1200px;
+    margin: 0 auto;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
 h1 {
+    color: #fff;
     margin: 0;
+    font-size: 2rem;
 }
 
 nav ul {
     list-style: none;
     display: flex;
-    gap: 20px;
+    gap: 1.5rem;
+    margin: 0;
+    padding: 0;
 }
 
 nav a {
     color: #fff;
     text-decoration: none;
+    font-weight: bold;
+    transition: color 0.3s;
+}
+
+nav a:hover {
+    color: #003087; /* MAGA blue */
 }
 
 .hero {
+    max-width: 1200px;
+    margin: 2rem auto;
     display: flex;
     justify-content: space-between;
-    padding: 50px;
-    background-color: #000;
+    align-items: center;
+    padding: 2rem;
+    background-color: #F0F0F0;
+    border-radius: 10px;
 }
 
 .hero-text {
@@ -51,127 +61,68 @@ nav a {
 }
 
 .hero-text h2 {
-    font-size: 3em;
-    color: #ccc;
+    color: #BF0A30;
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
 }
 
-.hero-image img {
-    width: 400px;
-    filter: grayscale(100%);
+.hero-text p {
+    color: #333;
+    margin: 0.5rem 0;
+}
+
+.hero-text button {
+    background-color: #003087;
+    color: #fff;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.3s;
+}
+
+.hero-text button:hover {
+    background-color: #002060;
+}
+
+.hero-image .hero-photo {
+    width: 300px;
+    border: 5px solid #BF0A30;
+    border-radius: 10px;
+    filter: grayscale(20%);
+}
+
+.caption {
+    text-align: center;
+    color: #333;
+    font-style: italic;
 }
 
 .about {
-    padding: 50px;
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 2rem;
     background-color: #fff;
     color: #000;
 }
 
 .about h3 {
+    color: #003087;
     text-align: center;
+    margin-bottom: 1.5rem;
 }
 
-.report-section {
-    padding: 50px;
-    background-color: #000;
+.about p {
+    margin: 1rem 0;
 }
 
-.report-header {
-    background-color: #800000;
-    padding: 20px;
-    text-align: center;
-}
-
-.report-header h2 {
-    font-size: 2.5em;
-}
-
-form {
-    background-color: #001;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-label {
-    color: #ccc;
-}
-
-input, select, textarea {
-    background-color: #333;
-    border: none;
-    padding: 10px;
+.footer {
+    background-color: #BF0A30;
     color: #fff;
-}
-
-button {
-    background-color: #fff;
-    color: #000;
-    padding: 10px;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.3s;
-}
-
-button:hover {
-    background-color: #ccc;
-}
-
-.reports-section {
-    padding: 50px;
-}
-
-.report-card {
-    background-color: #111;
-    padding: 20px;
-    margin-bottom: 20px;
-    animation: slideIn 0.5s ease-in;
-}
-
-@keyframes slideIn {
-    from { transform: translateX(-100%); }
-    to { transform: translateX(0); }
-}
-
-.report-card h2 {
-    color: #f00;
-}
-
-.report-card .evidence {
-    display: flex;
-    gap: 20px;
-}
-
-.evidence img {
-    width: 200px;
-}
-
-#admin-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.8);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-}
-
-#admin-content {
-    background: #333;
-    padding: 20px;
-    border-radius: 10px;
     text-align: center;
-}
-
-#admin-panel {
-    display: none;
-}
-
-.pending-report {
-    background: #222;
-    padding: 10px;
-    margin: 10px 0;
+    padding: 1rem;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
 }
