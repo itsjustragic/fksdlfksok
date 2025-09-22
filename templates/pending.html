@@ -49,23 +49,45 @@
                     <p class="desc">{{ report.description }}</p>
 
                     <div class="report-evidence">
-                        {% set ext = report.evidence_url.split('.')[-1]|lower %}
+                        {# --- Evidence (safe) --- #}
                         {% if report.evidence_url %}
+                            {% set ext = report.evidence_url.split('.')[-1]|lower %}
                             {% if ext in ['jpg','jpeg','png','gif'] %}
                                 <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image">
                             {% else %}
                                 <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
                             {% endif %}
                         {% endif %}
-                        {% if report.image_urls and report.image_urls|length > 0 %}
-                        <div class="evidence-gallery">
-                            {% for url in report.image_urls %}
-                                {% set img_ext = url.split('.')[-1]|lower %}
-                                {% if img_ext in ['jpg','jpeg','png','gif'] %}
-                                    <img src="{{ url }}" alt="Additional evidence" class="thumb">
-                                {% endif %}
-                            {% endfor %}
-                        </div>
+
+                        {# --- Normalize image_urls into image_list (works for string or list) ---#}
+                        {% set image_list = [] %}
+                        {% if report.image_urls %}
+                            {% if report.image_urls is string %}
+                                {% for line in report.image_urls.splitlines() %}
+                                    {% if line|trim %}
+                                        {% set image_list = image_list + [line|trim] %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% else %}
+                                {% for item in report.image_urls %}
+                                    {% if item %}
+                                        {% set image_list = image_list + [item] %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        {% endif %}
+
+                        {% if image_list and image_list|length > 0 %}
+                            <div class="evidence-gallery">
+                                {% for url in image_list %}
+                                    {% set img_ext = url.split('.')[-1]|lower %}
+                                    {% if img_ext in ['jpg','jpeg','png','gif'] %}
+                                        <img src="{{ url }}" alt="Additional evidence" class="thumb">
+                                    {% else %}
+                                        <a href="{{ url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View link</a>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
                         {% endif %}
                     </div>
                 </div>
