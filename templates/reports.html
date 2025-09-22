@@ -6,6 +6,35 @@
     <title>Reports - Charlie Kirk Memorial</title>
     <link rel="icon" type="image/png" href="/static/logo.png">    
     <link rel="stylesheet" href="/static/style.css">
+    <!-- Lightbox styles (scoped & minimal) -->
+    <style>
+    .lightbox-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        padding: 20px;
+    }
+    .lightbox-overlay.visible { display: flex; }
+    .lightbox-container { position: relative; max-width: 95%; max-height: 95%; display:flex; align-items:center; justify-content:center; }
+    .lightbox-image { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
+    .lightbox-close {
+        position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color:#fff; border: none; font-size: 20px; width:36px; height:36px; border-radius:6px; cursor:pointer;
+    }
+    .lightbox-arrow {
+        position: absolute; top:50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px;
+    }
+    .lightbox-arrow.left { left: 8px; }
+    .lightbox-arrow.right { right: 8px; }
+    .lightbox-caption { margin-top: 10px; color: #fff; font-size: 0.95rem; text-align:center; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .thumb, .evidence-image { cursor: zoom-in; }
+    @media (max-width:720px) {
+        .lightbox-arrow { width:42px; height:56px; font-size:22px; }
+    }
+    </style>
 </head>
 <body>
     <header class="header">
@@ -122,114 +151,187 @@
                     <p class="desc">{{ report.description }}</p>
 
                     <div class="report-evidence">
-                        {% set ext = report.evidence_url.split('.')[-1]|lower if report.evidence_url else '' %}
+                        {# --- Evidence (safe) --- #}
                         {% if report.evidence_url %}
+                            {% set ext = report.evidence_url.split('.')[-1]|lower %}
                             {% if ext in ['jpg','jpeg','png','gif'] %}
-                                <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image">
+                                <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
                             {% else %}
                                 <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
                             {% endif %}
                         {% endif %}
-                        {% if report.image_urls and report.image_urls|length > 0 %}
-                        <div class="evidence-gallery">
-                            {% for url in report.image_urls %}
-                                {% set img_ext = url.split('.')[-1]|lower %}
-                                {% if img_ext in ['jpg','jpeg','png','gif'] %}
-                                    <img src="{{ url }}" alt="Additional evidence" class="thumb">
-                                {% endif %}
-                            {% endfor %}
-                        </div>
+
+                        {# --- Normalize image_urls into image_list (works for string or list) ---#}
+                        {% set image_list = [] %}
+                        {% if report.image_urls %}
+                            {% if report.image_urls is string %}
+                                {% for line in report.image_urls.splitlines() %}
+                                    {% if line|trim %}
+                                        {% set image_list = image_list + [line|trim] %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% else %}
+                                {% for item in report.image_urls %}
+                                    {% if item %}
+                                        {% set image_list = image_list + [item] %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        {% endif %}
+
+                        {# Build images_only (only real image extensions) and include evidence_url first if it's an image #}
+                        {% set images_only = [] %}
+                        {% if report.evidence_url %}
+                            {% set ev_ext = report.evidence_url.split('.')[-1]|lower %}
+                            {% if ev_ext in ['jpg','jpeg','png','gif'] %}
+                                {% set images_only = images_only + [report.evidence_url] %}
+                            {% endif %}
+                        {% endif %}
+                        {% for url in image_list %}
+                            {% set img_ext = url.split('.')[-1]|lower %}
+                            {% if img_ext in ['jpg','jpeg','png','gif'] %}
+                                {% set images_only = images_only + [url] %}
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if image_list and image_list|length > 0 %}
+                            <div class="evidence-gallery">
+                                {% for url in image_list %}
+                                    {% set img_ext = url.split('.')[-1]|lower %}
+                                    {% if img_ext in ['jpg','jpeg','png','gif'] %}
+                                        <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
+                                    {% else %}
+                                        <a href="{{ url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View link</a>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
                         {% endif %}
                     </div>
                 </div>
             </article>
+
+            {# Attach image list JSON to the article for JS (images_only variable created above) #}
+            <script type="application/json" data-report-images-for="{{ report.id }}">
+                {{ images_only|tojson }}
+            </script>
             {% endfor %}
         </div>
     </main>
 
+    <!-- Lightbox DOM (single shared modal) -->
+    <div id="lightbox" class="lightbox-overlay" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="lightbox-container">
+            <button class="lightbox-arrow left" aria-label="Previous image">&larr;</button>
+            <img src="" alt="" class="lightbox-image" id="lightbox-img">
+            <button class="lightbox-arrow right" aria-label="Next image">&rarr;</button>
+            <button class="lightbox-close" aria-label="Close lightbox">&times;</button>
+        </div>
+        <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+
+    <!-- Lightbox script -->
     <script>
-    // Client-side filtering script
-    (function () {
-        const searchInput = document.getElementById('reports-search');
-        const stateSelect = document.getElementById('reports-state');
-        const cards = Array.from(document.querySelectorAll('.report-card'));
-        const noResultsEl = document.getElementById('no-results');
-
-        // Map of state abbreviations to full names (uppercased for comparison)
-        const STATE_MAP = {
-            AL: 'ALABAMA', AK: 'ALASKA', AZ: 'ARIZONA', AR: 'ARKANSAS', CA: 'CALIFORNIA',
-            CO: 'COLORADO', CT: 'CONNECTICUT', DE: 'DELAWARE', FL: 'FLORIDA', GA: 'GEORGIA',
-            HI: 'HAWAII', ID: 'IDAHO', IL: 'ILLINOIS', IN: 'INDIANA', IA: 'IOWA',
-            KS: 'KANSAS', KY: 'KENTUCKY', LA: 'LOUISIANA', ME: 'MAINE', MD: 'MARYLAND',
-            MA: 'MASSACHUSETTS', MI: 'MICHIGAN', MN: 'MINNESOTA', MS: 'MISSISSIPPI', MO: 'MISSOURI',
-            MT: 'MONTANA', NE: 'NEBRASKA', NV: 'NEVADA', NH: 'NEW HAMPSHIRE', NJ: 'NEW JERSEY',
-            NM: 'NEW MEXICO', NY: 'NEW YORK', NC: 'NORTH CAROLINA', ND: 'NORTH DAKOTA', OH: 'OHIO',
-            OK: 'OKLAHOMA', OR: 'OREGON', PA: 'PENNSYLVANIA', RI: 'RHODE ISLAND', SC: 'SOUTH CAROLINA',
-            SD: 'SOUTH DAKOTA', TN: 'TENNESSEE', TX: 'TEXAS', UT: 'UTAH', VT: 'VERMONT',
-            VA: 'VIRGINIA', WA: 'WASHINGTON', WV: 'WEST VIRGINIA', WI: 'WISCONSIN', WY: 'WYOMING',
-            DC: 'DISTRICT OF COLUMBIA'
-        };
-
-        function normalizeText(s) {
-            return (s || '').toString().toLowerCase().trim();
-        }
-
-        function parseStateFromLocation(loc) {
-            if (!loc) return '';
-            const parts = loc.split(',');
-            const last = parts[parts.length - 1].trim();
-            // If the last token is 2 letters, assume abbreviation.
-            if (last.length === 2) return last.toUpperCase();
-            // Try to match full name to abbreviation
-            const up = last.toUpperCase();
-            for (const [abbr, full] of Object.entries(STATE_MAP)) {
-                if (full === up || full.startsWith(up) || up.startsWith(full)) return abbr;
+    (function(){
+        // Collect all scripts with image JSON and map to report id
+        const imageScripts = Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]'));
+        const reportImages = {};
+        imageScripts.forEach(s => {
+            try {
+                const id = s.getAttribute('data-report-images-for');
+                const arr = JSON.parse(s.textContent || '[]');
+                reportImages[id] = Array.isArray(arr) ? arr : [];
+            } catch (e) {
+                // ignore parse fails
             }
-            // fallback: return last token normalized (upper)
-            return last.toUpperCase();
+        });
+
+        // Helper to open lightbox with an array and starting index
+        const lightbox = document.getElementById('lightbox');
+        const imgEl = document.getElementById('lightbox-img');
+        const captionEl = document.getElementById('lightbox-caption');
+        const btnPrev = document.querySelector('.lightbox-arrow.left');
+        const btnNext = document.querySelector('.lightbox-arrow.right');
+        const btnClose = document.querySelector('.lightbox-close');
+
+        let currentGallery = [];
+        let currentIndex = 0;
+
+        function showLightbox(gallery, index) {
+            if (!gallery || gallery.length === 0) return;
+            currentGallery = gallery;
+            currentIndex = Math.max(0, Math.min(index, gallery.length - 1));
+            imgEl.src = currentGallery[currentIndex];
+            imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+            captionEl.textContent = imgEl.alt;
+            lightbox.classList.add('visible');
+            lightbox.setAttribute('aria-hidden', 'false');
         }
 
-        function matchesFilter(card, searchValue, selectedState) {
-            const fulltext = normalizeText(card.dataset.fulltext || '');
-            // search filter
-            if (searchValue && !fulltext.includes(searchValue)) return false;
-
-            // state filter
-            if (!selectedState || selectedState === 'ALL') return true;
-            const loc = card.dataset.location || '';
-            const cardState = parseStateFromLocation(loc); // returns abbr or uppercase text
-            if (!cardState) return false;
-            if (cardState === selectedState) return true;
-            // Also allow matching when cardState is a full state name (compare with map)
-            const desiredFull = STATE_MAP[selectedState];
-            if (desiredFull && cardState === desiredFull) return true;
-            // also accept if cardState contains desiredFull
-            if (desiredFull && cardState.includes(desiredFull)) return true;
-
-            return false;
+        function hideLightbox() {
+            lightbox.classList.remove('visible');
+            lightbox.setAttribute('aria-hidden', 'true');
+            imgEl.src = '';
+            currentGallery = [];
+            currentIndex = 0;
         }
 
-        function applyFilters() {
-            const searchValue = normalizeText(searchInput.value || '');
-            const selectedState = stateSelect.value || 'ALL';
-            let visibleCount = 0;
-            cards.forEach(card => {
-                if (matchesFilter(card, searchValue, selectedState)) {
-                    card.style.display = '';
-                    visibleCount++;
-                } else {
-                    card.style.display = 'none';
+        function showPrev() {
+            if (currentGallery.length <= 1) return;
+            currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
+            imgEl.src = currentGallery[currentIndex];
+            imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+            captionEl.textContent = imgEl.alt;
+        }
+
+        function showNext() {
+            if (currentGallery.length <= 1) return;
+            currentIndex = (currentIndex + 1) % currentGallery.length;
+            imgEl.src = currentGallery[currentIndex];
+            imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+            captionEl.textContent = imgEl.alt;
+        }
+
+        // Attach click handlers to thumbnails and evidence images
+        document.querySelectorAll('.report-card').forEach(card => {
+            // Determine report ID (if present) - try data-id attribute or fallback by header id
+            const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="r-"]') && card.querySelector('[id^="r-"]').id.replace('r-',''));
+            const gallery = reportImages[reportId] || [];
+            // On clicking any .thumb inside this card, compute index and open lightbox
+            card.addEventListener('click', (ev) => {
+                const target = ev.target;
+                if (target.classList && (target.classList.contains('thumb') || target.classList.contains('evidence-image'))) {
+                    // Find all image elements in this card that are valid images (thumb + evidence-image)
+                    const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => el.src).filter(Boolean);
+                    if (imgs.length === 0 && gallery.length === 0) return;
+                    // Prefer imgs pulled from DOM, but fallback to gallery from JSON
+                    const actualGallery = imgs.length ? imgs : gallery;
+                    // find index in gallery of clicked src
+                    const clickedSrc = target.src || target.getAttribute('src');
+                    let idx = actualGallery.indexOf(clickedSrc);
+                    if (idx === -1) idx = 0;
+                    showLightbox(actualGallery, idx);
                 }
             });
-            noResultsEl.style.display = visibleCount === 0 ? 'block' : 'none';
-        }
+        });
 
-        // event listeners
-        searchInput.addEventListener('input', applyFilters);
-        stateSelect.addEventListener('change', applyFilters);
+        // Arrow buttons
+        btnPrev.addEventListener('click', showPrev);
+        btnNext.addEventListener('click', showNext);
+        btnClose.addEventListener('click', hideLightbox);
 
-        // initial run (in case page loads with pre-filled controls)
-        applyFilters();
+        // Click outside image to close
+        lightbox.addEventListener('click', (ev) => {
+            if (ev.target === lightbox || ev.target === captionEl) hideLightbox();
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (ev) => {
+            if (!lightbox.classList.contains('visible')) return;
+            if (ev.key === 'Escape') hideLightbox();
+            if (ev.key === 'ArrowLeft') showPrev();
+            if (ev.key === 'ArrowRight') showNext();
+        });
+
     })();
     </script>
 
