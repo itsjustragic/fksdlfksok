@@ -27,9 +27,82 @@
             <p class="subtitle">Verified reports made public.</p>
         </div>
 
-        <div class="reports-grid">
+        <!-- FILTER CONTROLS -->
+        <div class="reports-controls" aria-label="Filter reports">
+            <div class="controls-inner">
+                <label for="reports-search" class="visually-hidden">Search reports</label>
+                <input id="reports-search" type="search" placeholder="Search by name, description, employer, platform..." aria-label="Search reports">
+
+                <label for="reports-state" class="visually-hidden">Filter by state</label>
+                <select id="reports-state" aria-label="Filter reports by state">
+                    <option value="ALL">All States</option>
+                    <option value="AL">Alabama</option>
+                    <option value="AK">Alaska</option>
+                    <option value="AZ">Arizona</option>
+                    <option value="AR">Arkansas</option>
+                    <option value="CA">California</option>
+                    <option value="CO">Colorado</option>
+                    <option value="CT">Connecticut</option>
+                    <option value="DE">Delaware</option>
+                    <option value="FL">Florida</option>
+                    <option value="GA">Georgia</option>
+                    <option value="HI">Hawaii</option>
+                    <option value="ID">Idaho</option>
+                    <option value="IL">Illinois</option>
+                    <option value="IN">Indiana</option>
+                    <option value="IA">Iowa</option>
+                    <option value="KS">Kansas</option>
+                    <option value="KY">Kentucky</option>
+                    <option value="LA">Louisiana</option>
+                    <option value="ME">Maine</option>
+                    <option value="MD">Maryland</option>
+                    <option value="MA">Massachusetts</option>
+                    <option value="MI">Michigan</option>
+                    <option value="MN">Minnesota</option>
+                    <option value="MS">Mississippi</option>
+                    <option value="MO">Missouri</option>
+                    <option value="MT">Montana</option>
+                    <option value="NE">Nebraska</option>
+                    <option value="NV">Nevada</option>
+                    <option value="NH">New Hampshire</option>
+                    <option value="NJ">New Jersey</option>
+                    <option value="NM">New Mexico</option>
+                    <option value="NY">New York</option>
+                    <option value="NC">North Carolina</option>
+                    <option value="ND">North Dakota</option>
+                    <option value="OH">Ohio</option>
+                    <option value="OK">Oklahoma</option>
+                    <option value="OR">Oregon</option>
+                    <option value="PA">Pennsylvania</option>
+                    <option value="RI">Rhode Island</option>
+                    <option value="SC">South Carolina</option>
+                    <option value="SD">South Dakota</option>
+                    <option value="TN">Tennessee</option>
+                    <option value="TX">Texas</option>
+                    <option value="UT">Utah</option>
+                    <option value="VT">Vermont</option>
+                    <option value="VA">Virginia</option>
+                    <option value="WA">Washington</option>
+                    <option value="WV">West Virginia</option>
+                    <option value="WI">Wisconsin</option>
+                    <option value="WY">Wyoming</option>
+                    <option value="DC">District of Columbia</option>
+                </select>
+            </div>
+
+            <div id="no-results" class="no-results" style="display:none;">No reports match your filter.</div>
+        </div>
+
+        <div class="reports-grid" id="reports-grid">
             {% for report in reports %}
-            <article class="report-card" role="article" aria-labelledby="r-{{ report.id }}">
+            <article
+                class="report-card"
+                role="article"
+                aria-labelledby="r-{{ report.id }}"
+                data-id="{{ report.id }}"
+                data-fulltext="{{ (report.full_name or '') ~ ' ' ~ (report.description or '') ~ ' ' ~ (report.employer or '') ~ ' ' ~ (report.platform or '') ~ ' ' ~ (report.category or '') ~ ' ' ~ (report.location or '') }}"
+                data-location="{{ report.location or '' }}"
+            >
                 <header class="report-card-header">
                     <h3 id="r-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
                     <div class="meta">
@@ -49,7 +122,7 @@
                     <p class="desc">{{ report.description }}</p>
 
                     <div class="report-evidence">
-                        {% set ext = report.evidence_url.split('.')[-1]|lower %}
+                        {% set ext = report.evidence_url.split('.')[-1]|lower if report.evidence_url else '' %}
                         {% if report.evidence_url %}
                             {% if ext in ['jpg','jpeg','png','gif'] %}
                                 <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image">
@@ -69,11 +142,96 @@
                         {% endif %}
                     </div>
                 </div>
-
             </article>
             {% endfor %}
         </div>
     </main>
+
+    <script>
+    // Client-side filtering script
+    (function () {
+        const searchInput = document.getElementById('reports-search');
+        const stateSelect = document.getElementById('reports-state');
+        const cards = Array.from(document.querySelectorAll('.report-card'));
+        const noResultsEl = document.getElementById('no-results');
+
+        // Map of state abbreviations to full names (uppercased for comparison)
+        const STATE_MAP = {
+            AL: 'ALABAMA', AK: 'ALASKA', AZ: 'ARIZONA', AR: 'ARKANSAS', CA: 'CALIFORNIA',
+            CO: 'COLORADO', CT: 'CONNECTICUT', DE: 'DELAWARE', FL: 'FLORIDA', GA: 'GEORGIA',
+            HI: 'HAWAII', ID: 'IDAHO', IL: 'ILLINOIS', IN: 'INDIANA', IA: 'IOWA',
+            KS: 'KANSAS', KY: 'KENTUCKY', LA: 'LOUISIANA', ME: 'MAINE', MD: 'MARYLAND',
+            MA: 'MASSACHUSETTS', MI: 'MICHIGAN', MN: 'MINNESOTA', MS: 'MISSISSIPPI', MO: 'MISSOURI',
+            MT: 'MONTANA', NE: 'NEBRASKA', NV: 'NEVADA', NH: 'NEW HAMPSHIRE', NJ: 'NEW JERSEY',
+            NM: 'NEW MEXICO', NY: 'NEW YORK', NC: 'NORTH CAROLINA', ND: 'NORTH DAKOTA', OH: 'OHIO',
+            OK: 'OKLAHOMA', OR: 'OREGON', PA: 'PENNSYLVANIA', RI: 'RHODE ISLAND', SC: 'SOUTH CAROLINA',
+            SD: 'SOUTH DAKOTA', TN: 'TENNESSEE', TX: 'TEXAS', UT: 'UTAH', VT: 'VERMONT',
+            VA: 'VIRGINIA', WA: 'WASHINGTON', WV: 'WEST VIRGINIA', WI: 'WISCONSIN', WY: 'WYOMING',
+            DC: 'DISTRICT OF COLUMBIA'
+        };
+
+        function normalizeText(s) {
+            return (s || '').toString().toLowerCase().trim();
+        }
+
+        function parseStateFromLocation(loc) {
+            if (!loc) return '';
+            const parts = loc.split(',');
+            const last = parts[parts.length - 1].trim();
+            // If the last token is 2 letters, assume abbreviation.
+            if (last.length === 2) return last.toUpperCase();
+            // Try to match full name to abbreviation
+            const up = last.toUpperCase();
+            for (const [abbr, full] of Object.entries(STATE_MAP)) {
+                if (full === up || full.startsWith(up) || up.startsWith(full)) return abbr;
+            }
+            // fallback: return last token normalized (upper)
+            return last.toUpperCase();
+        }
+
+        function matchesFilter(card, searchValue, selectedState) {
+            const fulltext = normalizeText(card.dataset.fulltext || '');
+            // search filter
+            if (searchValue && !fulltext.includes(searchValue)) return false;
+
+            // state filter
+            if (!selectedState || selectedState === 'ALL') return true;
+            const loc = card.dataset.location || '';
+            const cardState = parseStateFromLocation(loc); // returns abbr or uppercase text
+            if (!cardState) return false;
+            if (cardState === selectedState) return true;
+            // Also allow matching when cardState is a full state name (compare with map)
+            const desiredFull = STATE_MAP[selectedState];
+            if (desiredFull && cardState === desiredFull) return true;
+            // also accept if cardState contains desiredFull
+            if (desiredFull && cardState.includes(desiredFull)) return true;
+
+            return false;
+        }
+
+        function applyFilters() {
+            const searchValue = normalizeText(searchInput.value || '');
+            const selectedState = stateSelect.value || 'ALL';
+            let visibleCount = 0;
+            cards.forEach(card => {
+                if (matchesFilter(card, searchValue, selectedState)) {
+                    card.style.display = '';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            noResultsEl.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+
+        // event listeners
+        searchInput.addEventListener('input', applyFilters);
+        stateSelect.addEventListener('change', applyFilters);
+
+        // initial run (in case page loads with pre-filled controls)
+        applyFilters();
+    })();
+    </script>
 
     <script src="/static/script.js"></script>
 </body>
