@@ -11,6 +11,8 @@ import uuid
 import uvicorn
 import httpx
 import asyncio
+# add at top with other imports
+import re
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -57,16 +59,47 @@ def submit_report(report: Dict = Body(...)):
     pending_reports.append(report)
     return {"message": "Report submitted for review"}
 
+
+# ----------------------------
+# replace the approve handler with this version
 @app.post("/approve/{report_id}")
 def approve(request: Request, report_id: str):
     if not request.session.get("admin"):
         raise HTTPException(status_code=404, detail="Not found")
+
     for i, r in enumerate(pending_reports):
         if r['id'] == report_id:
             approved = pending_reports.pop(i)
+
+            # -------------------------
+            # SANITIZE BEFORE PUBLISHING
+            # remove any internal keys that indicate how the report was submitted
+            for key in ("submitted_via", "source", "submit_method", "origin", "submitted_from"):
+                approved.pop(key, None)
+
+            # If description contains a submit-note like "Report submitted via ...",
+            # strip that piece out so the public description doesn't include it.
+            if approved.get("description"):
+                # remove phrases like "Report submitted via Discord bot from text file."
+                approved["description"] = re.sub(
+                    r"\s*Report submitted via[^\n\r]*", "", approved["description"], flags=re.I
+                ).strip()
+
+                # If description became empty, give a neutral fallback (optional)
+                if not approved["description"]:
+                    approved["description"] = "No description provided."
+
+            # also sanitize any "socials" metadata keys you don't want public (optional)
+            # e.g. keep socials but remove private submitter emails if present
+            if isinstance(approved.get("email"), str) and approved.get("email").lower().startswith("submitter:"):
+                approved.pop("email", None)
+
+            # -------------------------
             approved_reports.append(approved)
             return RedirectResponse("/admin/pending", status_code=303)
+
     raise HTTPException(status_code=404, detail="Report not found")
+
 
 @app.post("/deny/{report_id}")
 def deny(request: Request, report_id: str):
@@ -129,4 +162,5 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
