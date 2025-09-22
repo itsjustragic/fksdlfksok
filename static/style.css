@@ -462,3 +462,41 @@ button {
     .report-card-actions .action-form { flex: 0 1 auto; }
     .report-card-actions button { min-width: 48%; }
 }
+
+/* ===== FOOTER OVERLAY FIX (appended to avoid removing anything) =====
+   Prevent content from being visually cut off by the fixed footer.
+   Tweak --footer-height if your footer is taller/shorter.
+   ========================================================= */
+
+:root {
+    /* adjust this if your footer height changes */
+    --footer-height: 64px;
+}
+
+/* Ensure the fixed footer has an explicit height we can rely on */
+.footer {
+    box-sizing: border-box;
+    /* keep your existing visual rules; set an explicit min-height */
+    min-height: var(--footer-height);
+    padding: 12px; /* matches current file — adjust if you change --footer-height */
+    /* give the footer an elevation so it's visually distinct */
+    box-shadow: 0 -3px 8px rgba(0,0,0,0.12);
+}
+
+/* Give the main page content enough bottom padding so nothing is hidden */
+main {
+    /* add a little extra breathing room (+16px) so content isn't flush with the footer */
+    padding-bottom: calc(var(--footer-height) + 16px);
+}
+
+/* If any page sections use fixed-height or absolute positioning, make sure they respect the offset */
+.hero, .about, .reports-section {
+    /* keep layout stable by ensuring they can shrink if needed */
+    min-height: 0;
+}
+
+/* Mobile tweak: if footer grows on very small screens, increase padding */
+@media (max-width:420px) {
+    :root { --footer-height: 80px; }
+    main { padding-bottom: calc(var(--footer-height) + 16px); }
+}
