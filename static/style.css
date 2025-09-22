@@ -245,4 +245,6 @@ button:hover {
     bottom: 0;
 }
 
-
+form h3 {
+    color: #fff;
+}
