@@ -6,52 +6,83 @@ document.addEventListener('DOMContentLoaded', () => {
     if (reportForm) {
         reportForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const formData = new FormData(reportForm);
-            const report = {
-                full_name: formData.get('full_name'),
-                location: formData.get('location'),
-                occupation: formData.get('occupation'),
-                employer: formData.get('employer'),
-                evidence_url: formData.get('evidence_url'),
-                description: formData.get('description'),
-                image_urls: formData.get('image_urls').split('\n').filter(url => url.trim() !== ''),
-                email: formData.get('email'),
-                category: formData.get('category'),
-                platform: formData.get('platform')
-            };
             try {
+                const formData = new FormData(reportForm);
+
+                // Safely read image_urls (may be null)
+                const rawImageUrls = formData.get('image_urls') || '';
+                const imageUrls = rawImageUrls
+                    .split('\n')
+                    .map(u => u.trim())
+                    .filter(url => url !== '');
+
+                const report = {
+                    full_name: (formData.get('full_name') || '').trim(),
+                    location: (formData.get('location') || '').trim(),
+                    occupation: (formData.get('occupation') || '').trim() || null,
+                    employer: (formData.get('employer') || '').trim() || null,
+                    evidence_url: (formData.get('evidence_url') || '').trim(),
+                    description: (formData.get('description') || '').trim(),
+                    image_urls: imageUrls,
+                    email: (formData.get('email') || '').trim() || null,
+                    category: (formData.get('category') || '').trim(),
+                    platform: (formData.get('platform') || '').trim()
+                };
+
+                // Basic client-side required check to avoid obvious empty submissions
+                if (!report.full_name || !report.location || !report.evidence_url || !report.description || !report.category || !report.platform) {
+                    alert('Please fill in all required fields.');
+                    return;
+                }
+
                 const response = await fetch('/submit_report', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(report)
                 });
+
                 if (response.ok) {
-                    alert('Report submitted successfully!');
+                    // attempt to read any JSON message
+                    let dataText = '';
+                    try {
+                        const json = await response.json();
+                        dataText = json.message ? ` — ${json.message}` : '';
+                    } catch (err) {
+                        // not JSON or empty, ignore
+                    }
+                    alert('Report submitted successfully!' + dataText);
                     reportForm.reset();
+                    console.log('Report submitted:', report);
                 } else {
-                    alert('Error submitting report.');
+                    // read response body and show it (helps debug server-side 404/500)
+                    const text = await response.text();
+                    console.error('Submit failed', response.status, text);
+                    alert(`Error submitting report: ${response.status}\nServer response: ${text}`);
                 }
             } catch (err) {
-                alert('Error: ' + err);
+                console.error('Error during submit handler:', err);
+                alert('Error: ' + (err && err.message ? err.message : String(err)));
             }
         });
     }
-});
 
     // Load approved reports on reports page
     const reportsList = document.getElementById('reports-list');
     if (reportsList) {
         fetch('/approved_reports')
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
             .then(reports => {
                 reports.forEach(report => {
                     const card = document.createElement('div');
                     card.className = 'report-card';
                     card.innerHTML = `
                         <h2>${report.full_name}</h2>
-                        <p>${report.location} - ${report.occupation || 'N/A'}</p>
+                        <p>${report.location || 'N/A'} - ${report.occupation || 'N/A'}</p>
                         <p>${report.employer || 'N/A'}</p>
-                        <p>${report.description}</p>
+                        <p>${report.description || ''}</p>
                         <a href="${report.evidence_url}">${report.evidence_url}</a>
                     `;
                     if (report.image_urls && report.image_urls.length > 0) {
@@ -122,6 +153,7 @@ async function showAdminPanel() {
 async function refreshAdminReports(panel) {
     try {
         const response = await fetch('/pending_reports');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const reports = await response.json();
         panel.innerHTML = '<h2>Pending Reports</h2>';
         reports.forEach((r, i) => {
@@ -136,6 +168,7 @@ async function refreshAdminReports(panel) {
             panel.appendChild(div);
         });
     } catch (err) {
+        console.error('Error loading pending reports:', err);
         panel.innerHTML = '<p>Error loading reports.</p>';
     }
 }
@@ -147,8 +180,13 @@ window.approveReport = async (reportId) => {
             alert('Approved');
             const panel = document.getElementById('admin-panel');
             await refreshAdminReports(panel);
+        } else {
+            const text = await response.text();
+            console.error('Approve failed', response.status, text);
+            alert(`Approve failed: ${response.status}\n${text}`);
         }
     } catch (err) {
+        console.error('Error approving report:', err);
         alert('Error');
     }
 };
@@ -160,10 +198,13 @@ window.denyReport = async (reportId) => {
             alert('Denied');
             const panel = document.getElementById('admin-panel');
             await refreshAdminReports(panel);
+        } else {
+            const text = await response.text();
+            console.error('Deny failed', response.status, text);
+            alert(`Deny failed: ${response.status}\n${text}`);
         }
     } catch (err) {
+        console.error('Error denying report:', err);
         alert('Error');
     }
 };
-
-
