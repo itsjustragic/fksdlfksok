@@ -1,15 +1,36 @@
-# backend.py - FastAPI backend
+# main.py - FastAPI backend with Jinja templates
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict
+import uuid
 import uvicorn
 import httpx
 import asyncio
+
 app = FastAPI()
 
+# CORS for JS fetches
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Templates
+templates = Jinja2Templates(directory="templates")
+
+# Static files (css, js)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# In-memory storage
 pending_reports: List[Dict] = []
 approved_reports: List[Dict] = []
+
 SERVICE_URL = "https://charliesmurders.onrender.com"
 
 @app.on_event("startup")
@@ -32,6 +53,7 @@ async def ping():
 
 @app.post("/submit_report")
 def submit_report(report: Dict = Body(...)):
+    report['id'] = str(uuid.uuid4())
     pending_reports.append(report)
     return {"message": "Report submitted for review"}
 
@@ -39,32 +61,54 @@ def submit_report(report: Dict = Body(...)):
 def get_pending():
     return pending_reports
 
-@app.post("/approve/{index}")
-def approve(index: int):
-    if index < 0 or index >= len(pending_reports):
-        raise HTTPException(status_code=404, detail="Report not found")
-    report = pending_reports.pop(index)
-    approved_reports.append(report)
-    return {"message": "Approved"}
+@app.post("/approve/{report_id}")
+def approve(report_id: str):
+    for i, r in enumerate(pending_reports):
+        if r['id'] == report_id:
+            approved = pending_reports.pop(i)
+            approved_reports.append(approved)
+            return {"message": "Approved"}
+    raise HTTPException(status_code=404, detail="Report not found")
 
-@app.post("/deny/{index}")
-def deny(index: int):
-    if index < 0 or index >= len(pending_reports):
-        raise HTTPException(status_code=404, detail="Report not found")
-    del pending_reports[index]
-    return {"message": "Denied"}
+@app.post("/deny/{report_id}")
+def deny(report_id: str):
+    for i, r in enumerate(pending_reports):
+        if r['id'] == report_id:
+            del pending_reports[i]
+            return {"message": "Denied"}
+    raise HTTPException(status_code=404, detail="Report not found")
 
 @app.get("/approved_reports")
 def get_approved():
     return approved_reports
 
-# Mount static files
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
+# Serve home
+@app.get("/", include_in_schema=False)
+def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# Serve report form
+@app.get("/report", include_in_schema=False)
+def report_form(request: Request):
+    return templates.TemplateResponse("report.html", {"request": request})
+
+# Serve reports list
+@app.get("/reports", include_in_schema=False)
+def reports_list(request: Request):
+    return templates.TemplateResponse("reports.html", {"request": request, "reports": approved_reports})
+
+# Serve individual report detail
+@app.get("/reports/{report_id}", include_in_schema=False)
+def report_detail(report_id: str, request: Request):
+    for r in approved_reports:
+        if r['id'] == report_id:
+            return templates.TemplateResponse("report_detail.html", {"request": request, "report": r})
+    raise HTTPException(status_code=404, detail="Report not found")
+
+# Serve memories placeholder
+@app.get("/memories", include_in_schema=False)
+def memories(request: Request):
+    return templates.TemplateResponse("memories.html", {"request": request})
 
 if __name__ == "__main__":
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
-
