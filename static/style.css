@@ -1,4 +1,4 @@
-/* static/style.css */
+/* static/style.css (ORIGINAL CONTENT) */
 
 body {
     margin: 0;
@@ -236,3 +236,163 @@ button:hover {
 form h3 {
     color: #fff;
 }
+
+/* END OF ORIGINAL CONTENT */
+
+
+/* ===========================================================
+   ADDED GRID / COMPACT CARD STYLES (appended — do not remove)
+   These are intentionally appended so your original rules remain.
+   They make the reports and pending pages render in a compact grid.
+   If you want to tweak density, change the minmax() value below.
+   =========================================================== */
+
+:root{
+    --grid-card-bg: #0f0f10;
+    --grid-muted: #cfcfcf;
+    --grid-accent-red: #bf0a30;
+    --grid-accent-blue: #003087;
+    --grid-green: #28a745;
+    --grid-danger: #dc3545;
+    --grid-max-width: 1200px;
+    --grid-gap: 1rem;
+    --grid-radius: 10px;
+}
+
+/* keep box-sizing consistent */
+* { box-sizing: border-box; }
+
+/* Slightly tighten up global body spacing for grid pages (won't remove original) */
+body {
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+}
+
+/* Container for reports pages (more constrained than earlier .reports-section) */
+.reports-section {
+    max-width: var(--grid-max-width);
+    margin: 28px auto;
+    padding: 0 16px 80px; /* leave space for footer */
+}
+
+/* Section header tweaks */
+.section-header { margin-bottom: 14px; display:flex; align-items:center; justify-content:space-between; gap: 16px; }
+.section-header h2 { margin:0; font-size:1.4rem; color:#111; }
+.section-header .subtitle { margin:0; color:var(--grid-muted); font-size:0.95rem; }
+
+/* Grid layout for cards */
+.reports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--grid-gap);
+    align-items: start;
+}
+
+/* New compact card */
+.report-card {
+    background: var(--grid-card-bg);
+    color: #fff;
+    border-radius: var(--grid-radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    transition: transform .12s ease, box-shadow .12s ease;
+    min-height: 220px;
+    overflow: hidden;
+}
+
+/* hover effect */
+.report-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 14px 30px rgba(0,0,0,0.45);
+}
+
+/* header/meta inside card */
+.report-card-header { display:flex; flex-direction:column; gap:6px; }
+.report-card-header h3 { margin:0; font-size:1rem; color: var(--grid-accent-red); word-break:break-word; }
+.meta { display:flex; gap:6px; align-items:center; color: var(--grid-muted); font-size:0.85rem; }
+.meta-sep { opacity: 0.45; }
+
+/* card body */
+.report-card-body { flex: 1 1 auto; display:flex; flex-direction:column; gap:8px; }
+.small { font-size:0.85rem; color: var(--grid-muted); margin:0; }
+.desc { margin:0; font-size:0.95rem; color:#eee; max-height:72px; overflow:hidden; text-overflow:ellipsis; }
+
+/* evidence styling */
+.report-evidence { margin-top: 6px; display:flex; flex-direction:column; gap:8px; }
+.evidence-image {
+    width:100%;
+    height:140px;
+    object-fit:cover;
+    border-radius:8px;
+    border: 2px solid rgba(255,255,255,0.04);
+    background: #222;
+}
+.evidence-link {
+    color: var(--grid-accent-blue);
+    text-decoration: underline;
+    font-size:0.95rem;
+}
+
+/* thumbnail gallery */
+.evidence-gallery {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.thumb {
+    width:100%;
+    height:56px;
+    object-fit:cover;
+    border-radius:6px;
+    background:#222;
+}
+
+/* actions area */
+.report-card-actions {
+    display:flex;
+    gap:8px;
+    margin-top:8px;
+    align-items:center;
+    justify-content:flex-end;
+}
+.action-form { margin:0; }
+
+button.admin-button, button.deny-button {
+    border: none;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor:pointer;
+    font-weight:600;
+    font-size:0.9rem;
+}
+button.admin-button { background: var(--grid-green); color:#fff; }
+button.deny-button { background: var(--grid-danger); color:#fff; }
+
+button.small { padding: 6px 8px; font-size:0.85rem; border-radius:6px; }
+
+/* make sure images show as blocks */
+.report-card img, .report-card .thumb { display:block; }
+
+/* responsive tweaks */
+@media (max-width:720px) {
+    .reports-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    .evidence-image { height:120px; }
+    .thumb { height:48px; }
+}
+
+/* footer left as-is but ensure visibility */
+.footer {
+    background-color: #BF0A30;
+    color: #fff;
+    text-align: center;
+    padding: 12px;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
+    left: 0;
+}
+
+/* End of appended grid styles */
