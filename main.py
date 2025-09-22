@@ -10,7 +10,6 @@ import uvicorn
 import httpx
 import asyncio
 
-app = FastAPI()
 
 # CORS for JS fetches
 app.add_middleware(
@@ -21,11 +20,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Templates
-templates = Jinja2Templates(directory="templates")
-
-# Static files (css, js)
+app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 # In-memory storage
 pending_reports: List[Dict] = []
@@ -108,3 +105,4 @@ def memories(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
