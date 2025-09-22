@@ -569,3 +569,76 @@ body {
 .footer {
     z-index: 9999;
 }
+
+/* ===== ADDED STYLES FOR FILTER CONTROLS (APPENDED — KEEP EVERYTHING ABOVE) ===== */
+
+/* ---------- Added styles for reports controls (search + state) ---------- */
+
+.reports-controls {
+    max-width: 1200px;
+    margin: 18px auto;
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.reports-controls .controls-inner {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+#reports-search {
+    min-width: 220px;
+    max-width: 520px;
+    flex: 1 1 auto;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: #111;
+    color: #fff;
+    font-size: 0.95rem;
+    outline: none;
+}
+
+#reports-search::placeholder {
+    color: #9d9d9d;
+}
+
+#reports-state {
+    min-width: 200px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: #111;
+    color: #fff;
+    font-size: 0.95rem;
+    outline: none;
+}
+
+.no-results {
+    color: #f8bdbd;
+    font-weight: 600;
+    margin-top: 6px;
+}
+
+/* accessibility helper: visually-hidden for labels */
+.visually-hidden {
+    position: absolute !important;
+    height: 1px; width: 1px;
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px);
+    white-space: nowrap; /* added to prevent wrapping */
+}
+
+/* Ensure search controls don't get hidden under fixed footer on small screens */
+@media (max-width: 720px) {
+    .reports-controls { padding: 6px 12px; }
+    #reports-search { min-width: 140px; }
+    #reports-state { min-width: 140px; }
+}
+
+/* End of appended filter styles */
