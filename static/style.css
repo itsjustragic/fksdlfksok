@@ -376,7 +376,7 @@ button.small { padding: 6px 8px; font-size:0.85rem; border-radius:6px; }
 /* make sure images show as blocks */
 .report-card img, .report-card .thumb { display:block; }
 
-/* responsive tweaks */
+ /* responsive tweaks */
 @media (max-width:720px) {
     .reports-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
     .evidence-image { height:120px; }
@@ -396,3 +396,69 @@ button.small { padding: 6px 8px; font-size:0.85rem; border-radius:6px; }
 }
 
 /* End of appended grid styles */
+
+/* ===== GRID + ACTIONS FIX (appended to avoid removing anything) ===== */
+
+/* make sure the grid can't be accidentally overridden */
+.reports-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) !important;
+    gap: var(--grid-gap, 1rem) !important;
+    align-items: start;
+}
+
+/* ensure individual cards don't force a single-column layout */
+.report-card {
+    display: flex !important;
+    flex-direction: column;
+    min-width: 0; /* allows child overflow handling in grid */
+}
+
+/* make the actions area inline so forms do not stack */
+.report-card-actions {
+    display: flex !important;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    margin-top: 8px;
+    flex-wrap: nowrap;
+}
+
+/* forms inside the actions should not be block-level full width */
+.report-card-actions .action-form {
+    display: inline-flex;
+    width: auto;
+    margin: 0;
+}
+
+/* buttons: prevent them from expanding to parent's width */
+.report-card-actions button,
+.report-card-actions .admin-button,
+.report-card-actions .deny-button {
+    display: inline-block;
+    width: auto;
+    min-width: 110px;
+    padding: 8px 12px;
+    box-sizing: border-box;
+}
+
+/* defensive rule in case any other rule sets button { width:100% } */
+button {
+    max-width: 100%;
+}
+
+/* thumbs & evidence: ensure they don't force column layout */
+.evidence-gallery, .report-evidence {
+    min-width: 0;
+}
+
+/* smaller screens: allow buttons to wrap if necessary */
+@media (max-width:420px) {
+    .report-card-actions {
+        justify-content: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    .report-card-actions .action-form { flex: 0 1 auto; }
+    .report-card-actions button { min-width: 48%; }
+}
