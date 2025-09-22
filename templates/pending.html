@@ -41,13 +41,13 @@
     </div>
 
     <div class="reports-grid">
-        {# --- dedupe visually by a signature in template only --- #}
+        {# html-only dedupe so duplicates won't render #}
         {% set _seen_sigs = [] %}
 
         {% for report in reports %}
             {% set sig = (report.full_name or '') ~ '|' ~ (report.platform or '') ~ '|' ~ (report.description or '') ~ '|' ~ (report.evidence_url or '') %}
             {% if sig in _seen_sigs %}
-                {# duplicate — skip rendering this identical card (HTML-only dedupe) #}
+                {# skip duplicate rendering #}
             {% else %}
                 {% set _seen_sigs = _seen_sigs + [sig] %}
 
@@ -71,81 +71,187 @@
                         <p class="desc">{{ report.description }}</p>
 
                         <div class="report-evidence">
-                            {# --- parse image_urls into image_list (string or list) --- #}
+                            {# ========================
+                               Build image_list robustly from any likely shape:
+                               - report.image_urls (list)
+                               - report.image_urls (string: newline/comma list)
+                               - report.image_urls (json-like string ["url","url"])
+                               - report.image_list, report.images_only, report.images, report.imageUrls
+                               ======================== #}
+
                             {% set image_list = [] %}
+
+                            {# 1) if report.image_urls exists #}
                             {% if report.image_urls %}
                                 {% if report.image_urls is string %}
-                                    {% for line in report.image_urls.splitlines() %}
-                                        {% for part in line.split(',') %}
-                                            {% set u = part.strip() %}
-                                            {% if u.startswith('<') and u.endswith('>') %}
-                                                {% set u = u[1:-1].strip() %}
+                                    {% set raw = report.image_urls.strip() %}
+                                    {% if raw.startswith('[') and raw.endswith(']') %}
+                                        {# JSON-like array string: remove brackets then split by commas, strip quotes/spaces #}
+                                        {% set inner = raw[1:-1] %}
+                                        {% for part in inner.split(',') %}
+                                            {% set p = part.strip().strip('"').strip("'") %}
+                                            {% if p %}
+                                                {% set image_list = image_list + [p] %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        {# newline/comma separated plain text pasted list #}
+                                        {% for line in report.image_urls.splitlines() %}
+                                            {% for part in line.split(',') %}
+                                                {% set u = part.strip() %}
+                                                {% if u.startswith('<') and u.endswith('>') %}
+                                                    {% set u = u[1:-1].strip() %}
+                                                {% endif %}
+                                                {% set u = u.strip().strip('"').strip("'") %}
+                                                {% if u %}
+                                                    {% set image_list = image_list + [u] %}
+                                                {% endif %}
+                                            {% endfor %}
+                                        {% endfor %}
+                                    {% endif %}
+                                {% else %}
+                                    {# assume iterable/list-like #}
+                                    {% for item in report.image_urls %}
+                                        {% if item %}
+                                            {% set u = item %}
+                                            {% if u is string %}
+                                                {% set u = u.strip() %}
+                                                {% if u.startswith('<') and u.endswith('>') %}
+                                                    {% set u = u[1:-1].strip() %}
+                                                {% endif %}
+                                                {% set u = u.strip().strip('"').strip("'") %}
                                             {% endif %}
                                             {% if u %}
                                                 {% set image_list = image_list + [u] %}
                                             {% endif %}
-                                        {% endfor %}
-                                    {% endfor %}
-                                {% else %}
-                                    {% for item in report.image_urls %}
-                                        {% if item %}
-                                            {% set u = item %}
-                                            {% if u.startswith('<') and u.endswith('>') %}
-                                                {% set u = u[1:-1].strip() %}
-                                            {% endif %}
-                                            {% set image_list = image_list + [u] %}
                                         {% endif %}
                                     {% endfor %}
                                 {% endif %}
                             {% endif %}
 
-                            {# --- only treat a URL as an image if its extension is an image extension --- #}
-                            {% set img_exts = ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
-                            {% set images_only = [] %}
-
-                            {# evidence_url first if it ends with an image extension (strip query/hash) #}
-                            {% if report.evidence_url %}
-                                {% set ev = report.evidence_url %}
-                                {% if ev.startswith('<') and ev.endswith('>') %}{% set ev = ev[1:-1].strip() %}{% endif %}
-                                {% set ev_check = ev.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
-                                {% if ev_ext in img_exts %}
-                                    {% set images_only = images_only + [report.evidence_url] %}
+                            {# 2) check other common keys that might be present (image_list, images_only, images, imageUrls) #}
+                            {% if report.image_list %}
+                                {% if report.image_list is string %}
+                                    {% for line in report.image_list.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}
+                                                {% set image_list = image_list + [v] %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.image_list %}
+                                        {% if item %}{% set image_list = image_list + [item] %}{% endif %}
+                                    {% endfor %}
                                 {% endif %}
                             {% endif %}
 
-                            {# then image_list items, only if extension matches, dedupe images_only #}
+                            {% if report.images_only %}
+                                {% if report.images_only is string %}
+                                    {% for line in report.images_only.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.images_only %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if report.images %}
+                                {% if report.images is string %}
+                                    {% for line in report.images.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.images %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if report.imageUrls %}
+                                {% if report.imageUrls is string %}
+                                    {% for line in report.imageUrls.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.imageUrls %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {# sanitize and dedupe while preserving order #}
+                            {% set seen = [] %}
+                            {% set normalized_list = [] %}
+                            {% for u in image_list %}
+                                {% if u is string %}
+                                    {% set uu = u.strip() %}
+                                    {% if uu.startswith('<') and uu.endswith('>') %}{% set uu = uu[1:-1].strip() %}{% endif %}
+                                    {% set uu = uu.strip().strip('"').strip("'") %}
+                                    {% if uu and uu not in seen %}
+                                        {% set seen = seen + [uu] %}
+                                        {% set normalized_list = normalized_list + [uu] %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {# final image_list now in normalized_list #}
+                            {% set image_list = normalized_list %}
+
+                            {# --- Determine images_only by extension check (strip ?/# for check) --- #}
+                            {% set img_exts = ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
+                            {% set images_only = [] %}
+                            {% if report.evidence_url %}
+                                {% set ev = report.evidence_url %}
+                                {% if ev is string %}
+                                    {% set ev2 = ev.strip() %}
+                                    {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
+                                    {% set candidate = ev2.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                    {% if ext in img_exts %}
+                                        {% set images_only = images_only + [ev] %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+
                             {% for url in image_list %}
                                 {% set u = url %}
-                                {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
+                                {% set candidate = u.split('?')[0].split('#')[0].rstrip('/') %}
+                                {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
                                 {% if ext in img_exts and (u not in images_only) %}
                                     {% set images_only = images_only + [u] %}
                                 {% endif %}
                             {% endfor %}
 
-                            {# --- Render evidence_url: if extension indicates image render <img> else show link --- #}
+                            {# --- Render evidence_url (image only when extension matches) --- #}
                             {% if report.evidence_url %}
-                                {% set ev_for_check = report.evidence_url %}
-                                {% if ev_for_check.startswith('<') and ev_for_check.endswith('>') %}{% set ev_for_check = ev_for_check[1:-1].strip() %}{% endif %}
-                                {% set ev_check = ev_for_check.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
-                                {% if ev_ext in img_exts %}
-                                    <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
-                                {% else %}
-                                    <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                {% set evsrc = report.evidence_url %}
+                                {% if evsrc is string %}
+                                    {% set ev2 = evsrc.strip() %}
+                                    {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
+                                    {% set chk = ev2.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = chk.rsplit('.',1)[-1]|lower if '.' in chk else '' %}
+                                    {% if ext in img_exts %}
+                                        <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
+                                    {% else %}
+                                        <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                    {% endif %}
                                 {% endif %}
                             {% endif %}
 
-                            {# --- Render gallery thumbnails from image_list preserving order --- #}
+                            {# --- Render gallery thumbnails (only those with valid extension) --- #}
                             {% if image_list and image_list|length > 0 %}
                                 <div class="evidence-gallery">
                                     {% for url in image_list %}
                                         {% set u = url %}
-                                        {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                        {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
-                                        {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
+                                        {% set candidate = u.split('?')[0].split('#')[0].rstrip('/') %}
+                                        {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
                                         {% if ext in img_exts %}
                                             <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
                                         {% else %}
@@ -154,9 +260,10 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
+
                         </div>
 
-                        {# Attach images_only JSON for the JS lightbox (only image-extension-matching URLs) #}
+                        {# provide JS lightbox with only the image-extension-matching urls #}
                         <script type="application/json" data-report-images-for="{{ report.id }}">
                             {{ (images_only or []) | tojson }}
                         </script>
