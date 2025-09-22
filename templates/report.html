@@ -72,6 +72,34 @@
         </form>
     </section>
     <script src="/static/script.js"></script>
+    <script>
+        document.getElementById('report-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const formData = new FormData(event.target);
+            const data = {};
+            formData.forEach((value, key) => {
+                data[key] = value;
+            });
+
+            try {
+                const response = await fetch('/submit_report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                if (response.ok) {
+                    window.location.href = '/admin/pending';
+                } else {
+                    console.error('Submission failed:', await response.text());
+                }
+            } catch (error) {
+                console.error('Error submitting report:', error);
+            }
+        });
+    </script>
 </body>
 </html>
-
