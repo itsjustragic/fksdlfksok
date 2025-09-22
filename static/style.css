@@ -1,4 +1,4 @@
-/* static/style.css (ORIGINAL CONTENT) */
+/* static/style.css (UPDATED) */
 
 body {
     margin: 0;
@@ -101,11 +101,13 @@ nav a:hover {
     font-style: italic;
 }
 
+/* NOTE: .report-section used to force a black background across the page;
+   that has been removed so the section no longer styles the entire page.
+   Card-level styles are applied to .report-card below (and in appended grid styles). */
 .report-section {
-    padding: 50px;
-    background-color: #000;
+    padding: 50px; /* keep spacing for form page if used elsewhere */
 }
-
+/* If you need a boxed form header, keep .report-header rules below */
 .report-header {
     background-color: #800000;
     padding: 20px;
@@ -148,22 +150,26 @@ button:hover {
     background-color: #ccc;
 }
 
+/* reports section spacing preserved */
 .reports-section {
     padding: 50px;
 }
 
+/* legacy single-card rule removed (we use grid/card below)
 .report-card {
     background-color: #111;
     padding: 20px;
     margin-bottom: 20px;
     animation: slideIn 0.5s ease-in;
 }
+*/
 
 @keyframes slideIn {
     from { transform: translateX(-100%); }
     to { transform: translateX(0); }
 }
 
+/* generic image rules */
 .report-card h2 {
     color: #f00;
 }
@@ -236,9 +242,6 @@ button:hover {
 form h3 {
     color: #fff;
 }
-
-/* END OF ORIGINAL CONTENT */
-
 
 /* ===========================================================
    ADDED GRID / COMPACT CARD STYLES (appended — do not remove)
