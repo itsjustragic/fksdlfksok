@@ -54,11 +54,38 @@ async def ping():
     return {"status": "alive"}
 
 @app.post("/submit_report")
-def submit_report(report: Dict = Body(...)):
-    report['id'] = str(uuid.uuid4())
+async def submit_report(
+    request: Request,
+    full_name: str = Form(...),
+    location: str = Form(None),
+    occupation: str = Form(None),
+    employer: str = Form(...),
+    address: str = Form(None),
+    employer_email: str = Form(None),
+    phone: str = Form(None),
+    category: str = Form(...),
+    platform: str = Form(...),
+    evidence_url: str = Form(...),
+    image_urls: str = Form(None),
+    description: str = Form(...)
+):
+    report = {
+        'id': str(uuid.uuid4()),
+        'full_name': full_name,
+        'location': location,
+        'occupation': occupation,
+        'employer': employer,
+        'address': address,
+        'employer_email': employer_email,
+        'phone': phone,
+        'category': category,
+        'platform': platform,
+        'evidence_url': evidence_url,
+        'image_urls': image_urls.splitlines() if image_urls else [],
+        'description': description
+    }
     pending_reports.append(report)
-    return {"message": "Report submitted for review"}
-
+    return RedirectResponse("/admin/pending", status_code=303)
 
 # ----------------------------
 # replace the approve handler with this version
@@ -162,5 +189,6 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 
