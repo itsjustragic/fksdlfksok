@@ -10,7 +10,7 @@ app = FastAPI()
 
 pending_reports: List[Dict] = []
 approved_reports: List[Dict] = []
-SERVICE_URL = "https://charliesmurders.onrender.com/"
+SERVICE_URL = "https://charliesmurders.onrender.com"
 
 @app.on_event("startup")
 async def schedule_ping_task():
@@ -64,6 +64,7 @@ app.mount("/", StaticFiles(directory=".", html=True), name="static")
 if __name__ == "__main__":
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 
 
