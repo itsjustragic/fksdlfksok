@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(SessionMiddleware, secret_key="fdhfjdhf")
+app.add_middleware(SessionMiddleware, secret_key="bb6a6c4ceefb5db3d44e67f2b0b456e3e3cd50c2c48686ddc8464ff279f6c3fe")
 
 # In-memory storage
 pending_reports: List[Dict] = []
@@ -129,3 +129,4 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
