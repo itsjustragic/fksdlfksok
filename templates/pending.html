@@ -41,6 +41,10 @@
 
                 <div class="report-card-body">
                     <p class="small"><strong>Category:</strong> {{ report.category }}</p>
+                    <p class="small"><strong>Occupation:</strong> {{ report.occupation or 'N/A' }}</p>
+                    <p class="small"><strong>Employer:</strong> {{ report.employer or 'N/A' }}</p>
+                    <p class="small"><strong>Address:</strong> {{ report.address or 'N/A' }}</p>
+                    <p class="small"><strong>Phone:</strong> {{ report.phone or 'N/A' }}</p>
                     <p class="desc">{{ report.description }}</p>
 
                     <div class="report-evidence">
