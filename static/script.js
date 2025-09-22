@@ -36,11 +36,45 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Load approved reports on reports page
+    const reportsList = document.getElementById('reports-list');
+    if (reportsList) {
+        fetch('/approved_reports')
+            .then(res => res.json())
+            .then(reports => {
+                reports.forEach(report => {
+                    const card = document.createElement('div');
+                    card.className = 'report-card';
+                    card.innerHTML = `
+                        <h2>${report.full_name}</h2>
+                        <p>${report.location} - ${report.occupation || 'N/A'}</p>
+                        <p>${report.employer || 'N/A'}</p>
+                        <p>${report.description}</p>
+                        <a href="${report.evidence_url}">${report.evidence_url}</a>
+                    `;
+                    if (report.image_urls && report.image_urls.length > 0) {
+                        const evidenceDiv = document.createElement('div');
+                        evidenceDiv.className = 'evidence';
+                        report.image_urls.forEach(url => {
+                            const img = document.createElement('img');
+                            img.src = url;
+                            img.alt = 'Evidence Image';
+                            evidenceDiv.appendChild(img);
+                        });
+                        card.appendChild(evidenceDiv);
+                    }
+                    reportsList.appendChild(card);
+                });
+            })
+            .catch(err => console.error('Error loading reports:', err));
+    }
 });
 
 // Admin access
-const obfuscatedPassword = 'YWRtaW4xMjM='; // base64 for 'admin123'
-const password = atob(obfuscatedPassword);
+const obfuscatedCodes = [105, 66, 75, 88, 70, 67, 79, 97, 67, 88, 65, 103, 79, 71, 69, 88, 67, 75, 70, 107, 78, 71, 67, 68, 121, 79, 73, 95, 88, 79, 122, 75, 89, 89, 24, 26, 24, 31, 11, 106, 9, 102, 69, 68, 77, 107, 108];
+const key = 42;
+const password = obfuscatedCodes.map(c => String.fromCharCode(c ^ key)).join('');
 
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && e.key === '`') {
