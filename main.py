@@ -1,6 +1,6 @@
 # main.py - FastAPI backend with Jinja templates
 
-from fastapi import FastAPI, HTTPException, Body, Request, Form
+from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +9,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import List, Dict
 import uuid
 import uvicorn
-import httpx
 import asyncio
-# add at top with other imports
+import httpx
 import re
 
 app = FastAPI()
@@ -55,7 +54,6 @@ async def ping():
 
 @app.post("/submit_report")
 async def submit_report(
-    request: Request,
     full_name: str = Form(...),
     location: str = Form(None),
     occupation: str = Form(None),
@@ -127,7 +125,6 @@ def approve(request: Request, report_id: str):
 
     raise HTTPException(status_code=404, detail="Report not found")
 
-
 @app.post("/deny/{report_id}")
 def deny(request: Request, report_id: str):
     if not request.session.get("admin"):
@@ -189,6 +186,3 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
