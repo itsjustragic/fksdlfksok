@@ -525,7 +525,7 @@ main {
    while background-clip keeps the border-radius rendering intact. */
 .about-box {
     position: relative;
-    z-index: 2;
+    z-index: 1;
     overflow: visible !important;
     -webkit-background-clip: padding-box;
     background-clip: padding-box;
@@ -563,4 +563,9 @@ body {
    this forces the outline to be visible (no visual change unless clipped before). */
 .about-box {
     box-shadow: 0 0 0 0 rgba(0,0,0,0); /* placeholder to make sure browsers render border correctly */
+}
+
+/* Ensure footer sits on top of page content (so "rights reserved" can't be overlaid) */
+.footer {
+    z-index: 9999;
 }
