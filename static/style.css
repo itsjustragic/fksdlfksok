@@ -500,3 +500,67 @@ main {
     :root { --footer-height: 80px; }
     main { padding-bottom: calc(var(--footer-height) + 16px); }
 }
+
+/* ===== BLUE BOX / CLIPPING FIXES (appended — do not remove anything above) =====
+   These are intentionally minimal and non-destructive: they only
+   change overflow / stacking on the containers that commonly clip
+   children like the blue .about-box you showed.
+   ============================================================ */
+
+/* Ensure page content is not accidentally clipped by ancestor overflow settings.
+   The use of !important is narrow and focused — only applied to overflow so we
+   do not alter your visual layout rules. */
+.header,
+.header-container,
+.hero,
+.report-section,
+.report-header,
+.reports-section,
+.about {
+    overflow: visible !important;
+}
+
+/* Specifically allow the about-box to be visible, on top, and not clipped.
+   position:relative + z-index ensures it sits above nearby elements (like backgrounds)
+   while background-clip keeps the border-radius rendering intact. */
+.about-box {
+    position: relative;
+    z-index: 2;
+    overflow: visible !important;
+    -webkit-background-clip: padding-box;
+    background-clip: padding-box;
+}
+
+/* Prevent any accidental clipping coming from nested child rules */
+.about-box * {
+    overflow: visible !important;
+}
+
+/* Ensure body leaves room for the fixed footer (some pages don't use <main>)
+   Use a fallback value for the CSS variable in case it's not defined in some contexts. */
+body {
+    padding-bottom: calc(var(--footer-height, 64px) + 16px);
+}
+
+/* If a section is absolutely/relatively positioned and using transforms it can create 
+   a stacking context; increase z-index on about-box to avoid being painted beneath it. */
+.hero, .report-section, .report-header {
+    z-index: 0;
+}
+
+/* Small screens: ensure about-box doesn't get cropped when layout compresses */
+@media (max-width:720px) {
+    .about {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    .about-box {
+        margin-top: 1rem;
+    }
+}
+
+/* final safety: in the rare case a third-party rule set border-box clipping,
+   this forces the outline to be visible (no visual change unless clipped before). */
+.about-box {
+    box-shadow: 0 0 0 0 rgba(0,0,0,0); /* placeholder to make sure browsers render border correctly */
+}
