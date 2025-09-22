@@ -7,7 +7,6 @@
     <link rel="icon" type="image/png" href="/static/logo.png">
     <link rel="stylesheet" href="/static/style.css">
     <style>
-    /* minimal scoped lightbox styles (kept small so it won't conflict) */
     .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 99999; padding: 20px; }
     .lightbox-overlay.visible { display:flex; }
     .lightbox-container { position: relative; max-width: 95%; max-height: 95%; display:flex; align-items:center; justify-content:center; }
@@ -15,7 +14,7 @@
     .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer; }
     .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.5); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; }
     .lightbox-arrow.left { left:8px; } .lightbox-arrow.right { right:8px; }
-    .thumb, .evidence-image { cursor: zoom-in; max-width: 100%; border-radius:4px; }
+    .thumb, .evidence-image { cursor: zoom-in; max-width: 100%; border-radius:4px; display:block; margin:6px 0; }
     .lightbox-caption { margin-top: 10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; } }
     </style>
@@ -41,7 +40,6 @@
     </div>
 
     <div class="reports-grid">
-        {# avoid rendering duplicate cards with identical sig #}
         {% set _seen_sigs = [] %}
 
         {% for report in reports %}
@@ -70,9 +68,8 @@
                         <p class="small"><strong>Their Emails:</strong> {{ report.employer_email or 'N/A' }}</p>
                         <p class="desc">{{ report.description }}</p>
 
-                        {# Evidence handling (template-only robust parsing) #}
                         <div class="report-evidence">
-                            {# normalize image_list from report.image_urls (string or list) #}
+                            {# Normalize image_list from report.image_urls (string or list) #}
                             {% set image_list = [] %}
                             {% if report.image_urls %}
                                 {% if report.image_urls is string %}
@@ -100,50 +97,43 @@
                                 {% endif %}
                             {% endif %}
 
-                            {# build images_only: evidence first (if image), then image_list items (deduped) #}
+                            {# Build images_only array (evidence first if plausible image) #}
                             {% set images_only = [] %}
                             {% if report.evidence_url %}
                                 {% set ev = report.evidence_url %}
                                 {% if ev.startswith('<') and ev.endswith('>') %}{% set ev = ev[1:-1].strip() %}{% endif %}
-                                {% set ev_check = ev.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
-                                {% if ev_ext in ['jpg','jpeg','png','gif','webp','bmp'] %}
+                                {% if ev.startswith('http') or ev.startswith('data:') %}
                                     {% set images_only = images_only + [report.evidence_url] %}
                                 {% endif %}
                             {% endif %}
-
                             {% for url in image_list %}
                                 {% set u = url %}
                                 {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
-                                {% if ext in ['jpg','jpeg','png','gif','webp','bmp'] and (u not in images_only) %}
-                                    {% set images_only = images_only + [u] %}
+                                {% if u.startswith('http') or u.startswith('data:') %}
+                                    {% if u not in images_only %}
+                                        {% set images_only = images_only + [u] %}
+                                    {% endif %}
                                 {% endif %}
                             {% endfor %}
 
-                            {# render evidence_url (if image -> <img>, else -> link) #}
+                            {# Render evidence_url: try image for http/data:, else link #}
                             {% if report.evidence_url %}
                                 {% set ev_for_check = report.evidence_url %}
                                 {% if ev_for_check.startswith('<') and ev_for_check.endswith('>') %}{% set ev_for_check = ev_for_check[1:-1].strip() %}{% endif %}
-                                {% set ev_check = ev_for_check.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
-                                {% if ev_ext in ['jpg','jpeg','png','gif','webp','bmp'] %}
+                                {% if ev_for_check.startswith('http') or ev_for_check.startswith('data:') %}
                                     <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
                                 {% else %}
                                     <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
                                 {% endif %}
                             {% endif %}
 
-                            {# render gallery thumbnails from image_list preserving order #}
+                            {# Render gallery thumbnails preserving order - treat http/data as images #}
                             {% if image_list and image_list|length > 0 %}
                                 <div class="evidence-gallery">
                                     {% for url in image_list %}
                                         {% set u = url %}
                                         {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                        {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
-                                        {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
-                                        {% if ext in ['jpg','jpeg','png','gif','webp','bmp'] %}
+                                        {% if u.startswith('http') or u.startswith('data:') %}
                                             <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
                                         {% else %}
                                             <a href="{{ url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View link</a>
@@ -151,15 +141,14 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
+                        </div>
 
-                        </div> {# .report-evidence #}
-
-                        {# attach images_only JSON for the JS lightbox #}
+                        {# Attach images_only JSON for the lightbox JS #}
                         <script type="application/json" data-report-images-for="{{ report.id }}">
                             {{ (images_only or []) | tojson }}
                         </script>
 
-                    </div> {# .report-card-body #}
+                    </div>
 
                     <footer class="report-card-actions">
                         <form action="/approve/{{ report.id }}" method="post" class="action-form">
@@ -186,7 +175,6 @@
     <div class="lightbox-caption" id="lightbox-caption"></div>
 </div>
 
-<!-- Inline lightbox script (works with data-report-images-for JSON above) -->
 <script>
 (function(){
     const imageScripts = Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]'));
@@ -196,7 +184,7 @@
             const id = s.getAttribute('data-report-images-for');
             const arr = JSON.parse(s.textContent || '[]');
             reportImages[id] = Array.isArray(arr) ? arr : [];
-        } catch (e) { /* ignore */ }
+        } catch (e) {}
     });
 
     const lightbox = document.getElementById('lightbox');
