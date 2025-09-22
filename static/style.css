@@ -117,6 +117,18 @@ nav a:hover {
     margin: 1rem 0;
 }
 
+.about-box {
+    border: 2px solid #003087; /* MAGA blue border */
+    padding: 1.5rem;
+    border-radius: 8px; /* Slightly rounded corners for a modern look */
+    background-color: #fff; /* White background for contrast */
+    margin-top: 1rem;
+}
+
+.about-box p {
+    margin: 0.5rem 0;
+}
+
 .footer {
     background-color: #BF0A30;
     color: #fff;
