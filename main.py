@@ -1,9 +1,11 @@
 # main.py - FastAPI backend with Jinja templates
 
-from fastapi import FastAPI, HTTPException, Body, Request
+from fastapi import FastAPI, HTTPException, Body, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
 from typing import List, Dict
 import uuid
 import uvicorn
@@ -23,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+app.add_middleware(SessionMiddleware, secret_key="fdhfjdhf")
 
 # In-memory storage
 pending_reports: List[Dict] = []
@@ -55,25 +57,25 @@ def submit_report(report: Dict = Body(...)):
     pending_reports.append(report)
     return {"message": "Report submitted for review"}
 
-@app.get("/pending_reports")
-def get_pending():
-    return pending_reports
-
 @app.post("/approve/{report_id}")
-def approve(report_id: str):
+def approve(request: Request, report_id: str):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=404, detail="Not found")
     for i, r in enumerate(pending_reports):
         if r['id'] == report_id:
             approved = pending_reports.pop(i)
             approved_reports.append(approved)
-            return {"message": "Approved"}
+            return RedirectResponse("/admin/pending", status_code=303)
     raise HTTPException(status_code=404, detail="Report not found")
 
 @app.post("/deny/{report_id}")
-def deny(report_id: str):
+def deny(request: Request, report_id: str):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=404, detail="Not found")
     for i, r in enumerate(pending_reports):
         if r['id'] == report_id:
             del pending_reports[i]
-            return {"message": "Denied"}
+            return RedirectResponse("/admin/pending", status_code=303)
     raise HTTPException(status_code=404, detail="Report not found")
 
 @app.get("/approved_reports")
@@ -104,7 +106,26 @@ def report_detail(report_id: str, request: Request):
 def memories(request: Request):
     return templates.TemplateResponse("memories.html", {"request": request})
 
+@app.get("/admin/login", include_in_schema=False)
+def admin_login_page(request: Request):
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+
+@app.post("/admin/login")
+async def do_admin_login(request: Request, password: str = Form(...)):
+    obfuscated_codes = [105, 66, 75, 88, 70, 67, 79, 97, 67, 88, 65, 103, 79, 71, 69, 88, 67, 75, 70, 107, 78, 71, 67, 68, 121, 79, 73, 95, 88, 79, 122, 75, 89, 89, 24, 26, 24, 31, 11, 106, 9, 102, 69, 68, 77, 107, 108]
+    key = 42
+    expected_password = ''.join(chr(c ^ key) for c in obfuscated_codes)
+    if password == expected_password:
+        request.session["admin"] = True
+        return RedirectResponse("/admin/pending", status_code=303)
+    else:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+@app.get("/admin/pending", include_in_schema=False)
+def admin_pending(request: Request):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return templates.TemplateResponse("pending.html", {"request": request, "reports": pending_reports})
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
