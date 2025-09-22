@@ -1,277 +1,283 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Pending Reports - Charlie Kirk Memorial</title>
-    <link rel="icon" type="image/png" href="https://charliesmurders.onrender.com/static/logo.png">    
+    <link rel="icon" type="image/png" href="/static/logo.png">
     <link rel="stylesheet" href="/static/style.css">
-    <!-- Lightbox styles (scoped & minimal so it won't clash with your main stylesheet) -->
     <style>
-    .lightbox-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.85);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 99999;
-        padding: 20px;
-    }
-    .lightbox-overlay.visible { display: flex; }
+    /* minimal scoped lightbox styles (kept small so it won't conflict) */
+    .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 99999; padding: 20px; }
+    .lightbox-overlay.visible { display:flex; }
     .lightbox-container { position: relative; max-width: 95%; max-height: 95%; display:flex; align-items:center; justify-content:center; }
-    .lightbox-image { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
-    .lightbox-close {
-        position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color:#fff; border: none; font-size: 20px; width:36px; height:36px; border-radius:6px; cursor:pointer;
-    }
-    .lightbox-arrow {
-        position: absolute; top:50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px;
-    }
-    .lightbox-arrow.left { left: 8px; }
-    .lightbox-arrow.right { right: 8px; }
-    .lightbox-caption { margin-top: 10px; color: #fff; font-size: 0.95rem; text-align:center; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* Make thumbnails clickable pointer */
-    .thumb, .evidence-image { cursor: zoom-in; }
-    @media (max-width:720px) {
-        .lightbox-arrow { width:42px; height:56px; font-size:22px; }
-    }
+    .lightbox-image { max-width:100%; max-height:100%; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
+    .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer; }
+    .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.5); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; }
+    .lightbox-arrow.left { left:8px; } .lightbox-arrow.right { right:8px; }
+    .thumb, .evidence-image { cursor: zoom-in; max-width: 100%; border-radius:4px; }
+    .lightbox-caption { margin-top: 10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; } }
     </style>
 </head>
 <body>
-    <header class="header">
-        <div class="header-container">
-            <h1>CHARLIE KIRK MEMORIAL</h1>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/report">Report</a></li>
-                    <li><a href="/reports">Reports</a></li>
-                </ul>
-            </nav>
-        </div>
-    </header>
+<header class="header">
+    <div class="header-container">
+        <h1>CHARLIE KIRK MEMORIAL</h1>
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/report">Report</a></li>
+                <li><a href="/reports">Reports</a></li>
+            </ul>
+        </nav>
+    </div>
+</header>
 
-    <main class="reports-section">
-        <div class="section-header">
-            <h2>Pending Reports</h2>
-            <p class="subtitle">Queued for review — approve or deny.</p>
-        </div>
-
-        <div class="reports-grid">
-            {% for report in reports %}
-            <article class="report-card" role="article" aria-labelledby="p-{{ report.id }}">
-                <header class="report-card-header">
-                    <h3 id="p-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
-                    <div class="meta">
-                        <span class="meta-item">{{ report.location or 'N/A' }}</span>
-                        <span class="meta-sep">•</span>
-                        <span class="meta-item">{{ report.platform or 'Unknown' }}</span>
-                    </div>
-                </header>
-
-                <div class="report-card-body">
-                    <p class="small"><strong>Category:</strong> {{ report.category }}</p>
-                    <p class="small"><strong>Occupation:</strong> {{ report.occupation or 'N/A' }}</p>
-                    <p class="small"><strong>Employer:</strong> {{ report.employer or 'N/A' }}</p>
-                    <p class="small"><strong>Address:</strong> {{ report.address or 'N/A' }}</p>
-                    <p class="small"><strong>Phone:</strong> {{ report.phone or 'N/A' }}</p>
-                    <p class="small"><strong>Their Emails:</strong> {{ report.employer_email or 'N/A' }}</p>
-                    <p class="desc">{{ report.description }}</p>
-
-                    <div class="report-evidence">
-                        {# --- Evidence (safe) --- #}
-                        {% if report.evidence_url %}
-                            {% set ext = report.evidence_url.split('.')[-1]|lower %}
-                            {% if ext in ['jpg','jpeg','png','gif'] %}
-                                <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
-                            {% else %}
-                                <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
-                            {% endif %}
-                        {% endif %}
-
-                        {# --- Normalize image_urls into image_list (works for string or list) ---#}
-                        {% set image_list = [] %}
-                        {% if report.image_urls %}
-                            {% if report.image_urls is string %}
-                                {% for line in report.image_urls.splitlines() %}
-                                    {% if line|trim %}
-                                        {% set image_list = image_list + [line|trim] %}
-                                    {% endif %}
-                                {% endfor %}
-                            {% else %}
-                                {% for item in report.image_urls %}
-                                    {% if item %}
-                                        {% set image_list = image_list + [item] %}
-                                    {% endif %}
-                                {% endfor %}
-                            {% endif %}
-                        {% endif %}
-
-                        {# Build images_only (only real image extensions) and include evidence_url first if it's an image #}
-                        {% set images_only = [] %}
-                        {% if report.evidence_url %}
-                            {% set ev_ext = report.evidence_url.split('.')[-1]|lower %}
-                            {% if ev_ext in ['jpg','jpeg','png','gif'] %}
-                                {% set images_only = images_only + [report.evidence_url] %}
-                            {% endif %}
-                        {% endif %}
-                        {% for url in image_list %}
-                            {% set img_ext = url.split('.')[-1]|lower %}
-                            {% if img_ext in ['jpg','jpeg','png','gif'] %}
-                                {% set images_only = images_only + [url] %}
-                            {% endif %}
-                        {% endfor %}
-
-                        {% if image_list and image_list|length > 0 %}
-                            <div class="evidence-gallery">
-                                {% for url in image_list %}
-                                    {% set img_ext = url.split('.')[-1]|lower %}
-                                    {% if img_ext in ['jpg','jpeg','png','gif'] %}
-                                        <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
-                                    {% else %}
-                                        <a href="{{ url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View link</a>
-                                    {% endif %}
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <footer class="report-card-actions">
-                    <form action="/approve/{{ report.id }}" method="post" class="action-form">
-                        <button type="submit" class="admin-button small">Approve</button>
-                    </form>
-                    <form action="/deny/{{ report.id }}" method="post" class="action-form">
-                        <button type="submit" class="deny-button small">Deny</button>
-                    </form>
-                </footer>
-            </article>
-
-            {# Attach image list JSON to the article for JS (images_only variable created above) #}
-            <script type="application/json" data-report-images-for="{{ report.id }}">
-                {{ images_only|tojson }}
-            </script>
-            {% endfor %}
-        </div>
-    </main>
-
-    <!-- Lightbox DOM (single shared modal) -->
-    <div id="lightbox" class="lightbox-overlay" aria-hidden="true" role="dialog" aria-modal="true">
-        <div class="lightbox-container">
-            <button class="lightbox-arrow left" aria-label="Previous image">&larr;</button>
-            <img src="" alt="" class="lightbox-image" id="lightbox-img">
-            <button class="lightbox-arrow right" aria-label="Next image">&rarr;</button>
-            <button class="lightbox-close" aria-label="Close lightbox">&times;</button>
-        </div>
-        <div class="lightbox-caption" id="lightbox-caption"></div>
+<main class="reports-section">
+    <div class="section-header">
+        <h2>Pending Reports</h2>
+        <p class="subtitle">Queued for review — approve or deny.</p>
     </div>
 
-    <!-- Lightbox script -->
-    <script>
-    (function(){
-        // Collect all scripts with image JSON and map to report id
-        const imageScripts = Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]'));
-        const reportImages = {};
-        imageScripts.forEach(s => {
-            try {
-                const id = s.getAttribute('data-report-images-for');
-                const arr = JSON.parse(s.textContent || '[]');
-                reportImages[id] = Array.isArray(arr) ? arr : [];
-            } catch (e) {
-                // ignore parse fails
+    <div class="reports-grid">
+        {# avoid rendering duplicate cards with identical sig #}
+        {% set _seen_sigs = [] %}
+
+        {% for report in reports %}
+            {% set sig = (report.full_name or '') ~ '|' ~ (report.platform or '') ~ '|' ~ (report.description or '') ~ '|' ~ (report.evidence_url or '') %}
+            {% if sig in _seen_sigs %}
+                {# skip duplicate rendering #}
+            {% else %}
+                {% set _seen_sigs = _seen_sigs + [sig] %}
+
+                <article class="report-card" role="article" aria-labelledby="p-{{ report.id }}" data-id="{{ report.id }}">
+                    <header class="report-card-header">
+                        <h3 id="p-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
+                        <div class="meta">
+                            <span class="meta-item">{{ report.location or 'N/A' }}</span>
+                            <span class="meta-sep">•</span>
+                            <span class="meta-item">{{ report.platform or 'Unknown' }}</span>
+                        </div>
+                    </header>
+
+                    <div class="report-card-body">
+                        <p class="small"><strong>Category:</strong> {{ report.category }}</p>
+                        <p class="small"><strong>Occupation:</strong> {{ report.occupation or 'N/A' }}</p>
+                        <p class="small"><strong>Employer:</strong> {{ report.employer or 'N/A' }}</p>
+                        <p class="small"><strong>Address:</strong> {{ report.address or 'N/A' }}</p>
+                        <p class="small"><strong>Phone:</strong> {{ report.phone or 'N/A' }}</p>
+                        <p class="small"><strong>Their Emails:</strong> {{ report.employer_email or 'N/A' }}</p>
+                        <p class="desc">{{ report.description }}</p>
+
+                        {# Evidence handling (template-only robust parsing) #}
+                        <div class="report-evidence">
+                            {# normalize image_list from report.image_urls (string or list) #}
+                            {% set image_list = [] %}
+                            {% if report.image_urls %}
+                                {% if report.image_urls is string %}
+                                    {% for line in report.image_urls.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set u = part.strip() %}
+                                            {% if u.startswith('<') and u.endswith('>') %}
+                                                {% set u = u[1:-1].strip() %}
+                                            {% endif %}
+                                            {% if u %}
+                                                {% set image_list = image_list + [u] %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.image_urls %}
+                                        {% if item %}
+                                            {% set u = item %}
+                                            {% if u.startswith('<') and u.endswith('>') %}
+                                                {% set u = u[1:-1].strip() %}
+                                            {% endif %}
+                                            {% set image_list = image_list + [u] %}
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {# build images_only: evidence first (if image), then image_list items (deduped) #}
+                            {% set images_only = [] %}
+                            {% if report.evidence_url %}
+                                {% set ev = report.evidence_url %}
+                                {% if ev.startswith('<') and ev.endswith('>') %}{% set ev = ev[1:-1].strip() %}{% endif %}
+                                {% set ev_check = ev.split('?')[0].split('#')[0].rstrip('/') %}
+                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
+                                {% if ev_ext in ['jpg','jpeg','png','gif','webp','bmp'] %}
+                                    {% set images_only = images_only + [report.evidence_url] %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% for url in image_list %}
+                                {% set u = url %}
+                                {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
+                                {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
+                                {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
+                                {% if ext in ['jpg','jpeg','png','gif','webp','bmp'] and (u not in images_only) %}
+                                    {% set images_only = images_only + [u] %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {# render evidence_url (if image -> <img>, else -> link) #}
+                            {% if report.evidence_url %}
+                                {% set ev_for_check = report.evidence_url %}
+                                {% if ev_for_check.startswith('<') and ev_for_check.endswith('>') %}{% set ev_for_check = ev_for_check[1:-1].strip() %}{% endif %}
+                                {% set ev_check = ev_for_check.split('?')[0].split('#')[0].rstrip('/') %}
+                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
+                                {% if ev_ext in ['jpg','jpeg','png','gif','webp','bmp'] %}
+                                    <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
+                                {% else %}
+                                    <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                {% endif %}
+                            {% endif %}
+
+                            {# render gallery thumbnails from image_list preserving order #}
+                            {% if image_list and image_list|length > 0 %}
+                                <div class="evidence-gallery">
+                                    {% for url in image_list %}
+                                        {% set u = url %}
+                                        {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
+                                        {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
+                                        {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
+                                        {% if ext in ['jpg','jpeg','png','gif','webp','bmp'] %}
+                                            <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
+                                        {% else %}
+                                            <a href="{{ url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View link</a>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                        </div> {# .report-evidence #}
+
+                        {# attach images_only JSON for the JS lightbox #}
+                        <script type="application/json" data-report-images-for="{{ report.id }}">
+                            {{ (images_only or []) | tojson }}
+                        </script>
+
+                    </div> {# .report-card-body #}
+
+                    <footer class="report-card-actions">
+                        <form action="/approve/{{ report.id }}" method="post" class="action-form">
+                            <button type="submit" class="admin-button small">Approve</button>
+                        </form>
+                        <form action="/deny/{{ report.id }}" method="post" class="action-form">
+                            <button type="submit" class="deny-button small">Deny</button>
+                        </form>
+                    </footer>
+                </article>
+            {% endif %}
+        {% endfor %}
+    </div>
+</main>
+
+<!-- Lightbox DOM -->
+<div id="lightbox" class="lightbox-overlay" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="lightbox-container">
+        <button class="lightbox-arrow left" aria-label="Previous image">&larr;</button>
+        <img src="" alt="" class="lightbox-image" id="lightbox-img">
+        <button class="lightbox-arrow right" aria-label="Next image">&rarr;</button>
+        <button class="lightbox-close" aria-label="Close lightbox">&times;</button>
+    </div>
+    <div class="lightbox-caption" id="lightbox-caption"></div>
+</div>
+
+<!-- Inline lightbox script (works with data-report-images-for JSON above) -->
+<script>
+(function(){
+    const imageScripts = Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]'));
+    const reportImages = {};
+    imageScripts.forEach(s => {
+        try {
+            const id = s.getAttribute('data-report-images-for');
+            const arr = JSON.parse(s.textContent || '[]');
+            reportImages[id] = Array.isArray(arr) ? arr : [];
+        } catch (e) { /* ignore */ }
+    });
+
+    const lightbox = document.getElementById('lightbox');
+    const imgEl = document.getElementById('lightbox-img');
+    const captionEl = document.getElementById('lightbox-caption');
+    const btnPrev = document.querySelector('.lightbox-arrow.left');
+    const btnNext = document.querySelector('.lightbox-arrow.right');
+    const btnClose = document.querySelector('.lightbox-close');
+
+    let currentGallery = [];
+    let currentIndex = 0;
+
+    function showLightbox(gallery, index) {
+        if (!gallery || gallery.length === 0) return;
+        currentGallery = gallery;
+        currentIndex = Math.max(0, Math.min(index, gallery.length - 1));
+        imgEl.src = currentGallery[currentIndex];
+        imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+        captionEl.textContent = imgEl.alt;
+        lightbox.classList.add('visible');
+        lightbox.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideLightbox() {
+        lightbox.classList.remove('visible');
+        lightbox.setAttribute('aria-hidden', 'true');
+        imgEl.src = '';
+        currentGallery = [];
+        currentIndex = 0;
+    }
+
+    function showPrev() {
+        if (currentGallery.length <= 1) return;
+        currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
+        imgEl.src = currentGallery[currentIndex];
+        imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+        captionEl.textContent = imgEl.alt;
+    }
+
+    function showNext() {
+        if (currentGallery.length <= 1) return;
+        currentIndex = (currentIndex + 1) % currentGallery.length;
+        imgEl.src = currentGallery[currentIndex];
+        imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+        captionEl.textContent = imgEl.alt;
+    }
+
+    document.querySelectorAll('.report-card').forEach(card => {
+        const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="p-"]') && card.querySelector('[id^="p-"]').id.replace('p-',''));
+        const galleryFromJSON = reportImages[reportId] || [];
+        card.addEventListener('click', (ev) => {
+            const target = ev.target;
+            if (target.classList && (target.classList.contains('thumb') || target.classList.contains('evidence-image'))) {
+                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => el.src).filter(Boolean);
+                const actualGallery = imgs.length ? imgs : galleryFromJSON;
+                if (actualGallery.length === 0) return;
+                const clickedSrc = target.src || target.getAttribute('src');
+                let idx = actualGallery.indexOf(clickedSrc);
+                if (idx === -1) idx = 0;
+                showLightbox(actualGallery, idx);
             }
         });
+    });
 
-        // Helper to open lightbox with an array and starting index
-        const lightbox = document.getElementById('lightbox');
-        const imgEl = document.getElementById('lightbox-img');
-        const captionEl = document.getElementById('lightbox-caption');
-        const btnPrev = document.querySelector('.lightbox-arrow.left');
-        const btnNext = document.querySelector('.lightbox-arrow.right');
-        const btnClose = document.querySelector('.lightbox-close');
+    btnPrev.addEventListener('click', showPrev);
+    btnNext.addEventListener('click', showNext);
+    btnClose.addEventListener('click', hideLightbox);
 
-        let currentGallery = [];
-        let currentIndex = 0;
+    lightbox.addEventListener('click', (ev) => {
+        if (ev.target === lightbox || ev.target === captionEl) hideLightbox();
+    });
 
-        function showLightbox(gallery, index) {
-            if (!gallery || gallery.length === 0) return;
-            currentGallery = gallery;
-            currentIndex = Math.max(0, Math.min(index, gallery.length - 1));
-            imgEl.src = currentGallery[currentIndex];
-            imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-            captionEl.textContent = imgEl.alt;
-            lightbox.classList.add('visible');
-            lightbox.setAttribute('aria-hidden', 'false');
-        }
+    document.addEventListener('keydown', (ev) => {
+        if (!lightbox.classList.contains('visible')) return;
+        if (ev.key === 'Escape') hideLightbox();
+        if (ev.key === 'ArrowLeft') showPrev();
+        if (ev.key === 'ArrowRight') showNext();
+    });
+})();
+</script>
 
-        function hideLightbox() {
-            lightbox.classList.remove('visible');
-            lightbox.setAttribute('aria-hidden', 'true');
-            imgEl.src = '';
-            currentGallery = [];
-            currentIndex = 0;
-        }
-
-        function showPrev() {
-            if (currentGallery.length <= 1) return;
-            currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
-            imgEl.src = currentGallery[currentIndex];
-            imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-            captionEl.textContent = imgEl.alt;
-        }
-
-        function showNext() {
-            if (currentGallery.length <= 1) return;
-            currentIndex = (currentIndex + 1) % currentGallery.length;
-            imgEl.src = currentGallery[currentIndex];
-            imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-            captionEl.textContent = imgEl.alt;
-        }
-
-        // Attach click handlers to thumbnails and evidence images
-        document.querySelectorAll('.report-card').forEach(card => {
-            // Determine report ID (if present) - try data-id attribute or fallback by header id
-            const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="p-"]') && card.querySelector('[id^="p-"]').id.replace('p-',''));
-            const gallery = reportImages[reportId] || [];
-            // On clicking any .thumb inside this card, compute index and open lightbox
-            card.addEventListener('click', (ev) => {
-                const target = ev.target;
-                if (target.classList && (target.classList.contains('thumb') || target.classList.contains('evidence-image'))) {
-                    // Find all image elements in this card that are valid images (thumb + evidence-image)
-                    const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => el.src).filter(Boolean);
-                    if (imgs.length === 0 && gallery.length === 0) return;
-                    // Prefer imgs pulled from DOM, but fallback to gallery from JSON
-                    const actualGallery = imgs.length ? imgs : gallery;
-                    // find index in gallery of clicked src
-                    const clickedSrc = target.src || target.getAttribute('src');
-                    let idx = actualGallery.indexOf(clickedSrc);
-                    if (idx === -1) idx = 0;
-                    showLightbox(actualGallery, idx);
-                }
-            });
-        });
-
-        // Arrow buttons
-        btnPrev.addEventListener('click', showPrev);
-        btnNext.addEventListener('click', showNext);
-        btnClose.addEventListener('click', hideLightbox);
-
-        // Click outside image to close
-        lightbox.addEventListener('click', (ev) => {
-            if (ev.target === lightbox || ev.target === captionEl) hideLightbox();
-        });
-
-        // Keyboard navigation
-        document.addEventListener('keydown', (ev) => {
-            if (!lightbox.classList.contains('visible')) return;
-            if (ev.key === 'Escape') hideLightbox();
-            if (ev.key === 'ArrowLeft') showPrev();
-            if (ev.key === 'ArrowRight') showNext();
-        });
-
-    })();
-    </script>
-
-    <script src="/static/script.js"></script>
+<script src="/static/script.js"></script>
 </body>
 </html>
