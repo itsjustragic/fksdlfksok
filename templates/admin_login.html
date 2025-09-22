@@ -1,0 +1,35 @@
+<!-- templates/admin_login.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - Charlie Kirk Memorial</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-container">
+            <h1>CHARLIE KIRK MEMORIAL</h1>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/report">Report</a></li>
+                    <li><a href="/reports">Reports</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+    <section class="report-section">
+        <div class="report-header">
+            <h2>Admin Login</h2>
+        </div>
+        <form action="/admin/login" method="post">
+            <label>Password *</label>
+            <input type="password" name="password" required>
+            <button type="submit">Login</button>
+        </form>
+    </section>
+    <script src="/static/script.js"></script>
+</body>
+</html>
