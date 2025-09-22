@@ -82,22 +82,19 @@ def deny(report_id: str):
 def get_approved():
     return approved_reports
 
-# Serve home
+# Serve all templates
 @app.get("/", include_in_schema=False)
 def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-# Serve report form
 @app.get("/report", include_in_schema=False)
 def report_form(request: Request):
     return templates.TemplateResponse("report.html", {"request": request})
 
-# Serve reports list
 @app.get("/reports", include_in_schema=False)
 def reports_list(request: Request):
     return templates.TemplateResponse("reports.html", {"request": request, "reports": approved_reports})
 
-# Serve individual report detail
 @app.get("/reports/{report_id}", include_in_schema=False)
 def report_detail(report_id: str, request: Request):
     for r in approved_reports:
@@ -105,7 +102,6 @@ def report_detail(report_id: str, request: Request):
             return templates.TemplateResponse("report_detail.html", {"request": request, "report": r})
     raise HTTPException(status_code=404, detail="Report not found")
 
-# Serve memories placeholder
 @app.get("/memories", include_in_schema=False)
 def memories(request: Request):
     return templates.TemplateResponse("memories.html", {"request": request})
