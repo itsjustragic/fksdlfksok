@@ -3,17 +3,18 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Reports - Charlie Kirk Memorial</title>
+    <title>Pending Reports - Charlie Kirk Memorial</title>
     <link rel="icon" type="image/png" href="/static/logo.png">
     <link rel="stylesheet" href="/static/style.css">
     <style>
-    /* lightbox / thumb styles */
-    .lightbox-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:99999; padding:20px; }
+    /* scoped lightbox / thumb styles */
+    .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 99999; padding: 20px; }
     .lightbox-overlay.visible { display:flex; }
-    .lightbox-container { position: relative; max-width:95%; max-height:95%; display:flex; align-items:center; justify-content:center; }
+    .lightbox-container { position: relative; max-width: 95%; max-height: 95%; display:flex; align-items:center; justify-content:center; }
     .lightbox-image { max-width:100%; max-height:100%; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
     .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer; }
     .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.5); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; }
+    .lightbox-arrow.left { left:8px; } .lightbox-arrow.right { right:8px; }
     .thumb, .evidence-image { cursor: zoom-in; max-width:100%; border-radius:4px; display:block; margin:8px 0; }
     .lightbox-caption { margin-top:10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; } }
@@ -22,7 +23,7 @@
 <body>
 <header class="header">
     <div class="header-container">
-        <h1>WE ARE CHARLIE KIRK</h1>
+        <h1>CHARLIE KIRK MEMORIAL</h1>
         <nav>
             <ul>
                 <li><a href="/">Home</a></li>
@@ -35,77 +36,12 @@
 
 <main class="reports-section">
     <div class="section-header">
-        <h2>Verified Reports</h2>
-        <p class="subtitle">Verified reports made public.</p>
+        <h2>Pending Reports</h2>
+        <p class="subtitle">Queued for review — approve or deny.</p>
     </div>
 
-    <!-- FILTER CONTROLS -->
-    <div class="reports-controls" aria-label="Filter reports">
-        <div class="controls-inner">
-            <label for="reports-search" class="visually-hidden">Search reports</label>
-            <input id="reports-search" type="search" placeholder="Search by name, description, employer, platform..." aria-label="Search reports">
-
-            <label for="reports-state" class="visually-hidden">Filter by state</label>
-            <select id="reports-state" aria-label="Filter reports by state">
-                <option value="ALL">All States</option>
-                <option value="AL">Alabama</option>
-                <option value="AK">Alaska</option>
-                <option value="AZ">Arizona</option>
-                <option value="AR">Arkansas</option>
-                <option value="CA">California</option>
-                <option value="CO">Colorado</option>
-                <option value="CT">Connecticut</option>
-                <option value="DE">Delaware</option>
-                <option value="FL">Florida</option>
-                <option value="GA">Georgia</option>
-                <option value="HI">Hawaii</option>
-                <option value="ID">Idaho</option>
-                <option value="IL">Illinois</option>
-                <option value="IN">Indiana</option>
-                <option value="IA">Iowa</option>
-                <option value="KS">Kansas</option>
-                <option value="KY">Kentucky</option>
-                <option value="LA">Louisiana</option>
-                <option value="ME">Maine</option>
-                <option value="MD">Maryland</option>
-                <option value="MA">Massachusetts</option>
-                <option value="MI">Michigan</option>
-                <option value="MN">Minnesota</option>
-                <option value="MS">Mississippi</option>
-                <option value="MO">Missouri</option>
-                <option value="MT">Montana</option>
-                <option value="NE">Nebraska</option>
-                <option value="NV">Nevada</option>
-                <option value="NH">New Hampshire</option>
-                <option value="NJ">New Jersey</option>
-                <option value="NM">New Mexico</option>
-                <option value="NY">New York</option>
-                <option value="NC">North Carolina</option>
-                <option value="ND">North Dakota</option>
-                <option value="OH">Ohio</option>
-                <option value="OK">Oklahoma</option>
-                <option value="OR">Oregon</option>
-                <option value="PA">Pennsylvania</option>
-                <option value="RI">Rhode Island</option>
-                <option value="SC">South Carolina</option>
-                <option value="SD">South Dakota</option>
-                <option value="TN">Tennessee</option>
-                <option value="TX">Texas</option>
-                <option value="UT">Utah</option>
-                <option value="VT">Vermont</option>
-                <option value="VA">Virginia</option>
-                <option value="WA">Washington</option>
-                <option value="WV">West Virginia</option>
-                <option value="WI">Wisconsin</option>
-                <option value="WY">Wyoming</option>
-                <option value="DC">District of Columbia</option>
-            </select>
-        </div>
-
-        <div id="no-results" class="no-results" style="display:none;">No reports match your filter.</div>
-    </div>
-
-    <div class="reports-grid" id="reports-grid">
+    <div class="reports-grid">
+        {# html-only dedupe so duplicates won't render #}
         {% set _seen_sigs = [] %}
 
         {% for report in reports %}
@@ -115,16 +51,9 @@
             {% else %}
                 {% set _seen_sigs = _seen_sigs + [sig] %}
 
-                <article
-                    class="report-card"
-                    role="article"
-                    aria-labelledby="r-{{ report.id }}"
-                    data-id="{{ report.id }}"
-                    data-fulltext="{{ (report.full_name or '') ~ ' ' ~ (report.description or '') ~ ' ' ~ (report.employer or '') ~ ' ' ~ (report.platform or '') ~ ' ' ~ (report.category or '') ~ ' ' ~ (report.location or '') }}"
-                    data-location="{{ report.location or '' }}"
-                >
+                <article class="report-card" role="article" aria-labelledby="p-{{ report.id }}" data-id="{{ report.id }}">
                     <header class="report-card-header">
-                        <h3 id="r-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
+                        <h3 id="p-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
                         <div class="meta">
                             <span class="meta-item">{{ report.location or 'N/A' }}</span>
                             <span class="meta-sep">•</span>
@@ -142,74 +71,187 @@
                         <p class="desc">{{ report.description }}</p>
 
                         <div class="report-evidence">
+                            {# ========================
+                               Build image_list robustly from any likely shape:
+                               - report.image_urls (list)
+                               - report.image_urls (string: newline/comma list)
+                               - report.image_urls (json-like string ["url","url"])
+                               - report.image_list, report.images_only, report.images, report.imageUrls
+                               ======================== #}
+
                             {% set image_list = [] %}
+
+                            {# 1) if report.image_urls exists #}
                             {% if report.image_urls %}
                                 {% if report.image_urls is string %}
-                                    {% for line in report.image_urls.splitlines() %}
-                                        {% for part in line.split(',') %}
-                                            {% set u = part.strip() %}
-                                            {% if u.startswith('<') and u.endswith('>') %}
-                                                {% set u = u[1:-1].strip() %}
+                                    {% set raw = report.image_urls.strip() %}
+                                    {% if raw.startswith('[') and raw.endswith(']') %}
+                                        {# JSON-like array string: remove brackets then split by commas, strip quotes/spaces #}
+                                        {% set inner = raw[1:-1] %}
+                                        {% for part in inner.split(',') %}
+                                            {% set p = part.strip().strip('"').strip("'") %}
+                                            {% if p %}
+                                                {% set image_list = image_list + [p] %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        {# newline/comma separated plain text pasted list #}
+                                        {% for line in report.image_urls.splitlines() %}
+                                            {% for part in line.split(',') %}
+                                                {% set u = part.strip() %}
+                                                {% if u.startswith('<') and u.endswith('>') %}
+                                                    {% set u = u[1:-1].strip() %}
+                                                {% endif %}
+                                                {% set u = u.strip().strip('"').strip("'") %}
+                                                {% if u %}
+                                                    {% set image_list = image_list + [u] %}
+                                                {% endif %}
+                                            {% endfor %}
+                                        {% endfor %}
+                                    {% endif %}
+                                {% else %}
+                                    {# assume iterable/list-like #}
+                                    {% for item in report.image_urls %}
+                                        {% if item %}
+                                            {% set u = item %}
+                                            {% if u is string %}
+                                                {% set u = u.strip() %}
+                                                {% if u.startswith('<') and u.endswith('>') %}
+                                                    {% set u = u[1:-1].strip() %}
+                                                {% endif %}
+                                                {% set u = u.strip().strip('"').strip("'") %}
                                             {% endif %}
                                             {% if u %}
                                                 {% set image_list = image_list + [u] %}
                                             {% endif %}
-                                        {% endfor %}
-                                    {% endfor %}
-                                {% else %}
-                                    {% for item in report.image_urls %}
-                                        {% if item %}
-                                            {% set u = item %}
-                                            {% if u.startswith('<') and u.endswith('>') %}
-                                                {% set u = u[1:-1].strip() %}
-                                            {% endif %}
-                                            {% set image_list = image_list + [u] %}
                                         {% endif %}
                                     {% endfor %}
                                 {% endif %}
                             {% endif %}
 
+                            {# 2) check other common keys that might be present (image_list, images_only, images, imageUrls) #}
+                            {% if report.image_list %}
+                                {% if report.image_list is string %}
+                                    {% for line in report.image_list.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}
+                                                {% set image_list = image_list + [v] %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.image_list %}
+                                        {% if item %}{% set image_list = image_list + [item] %}{% endif %}
+                                    {% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if report.images_only %}
+                                {% if report.images_only is string %}
+                                    {% for line in report.images_only.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.images_only %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if report.images %}
+                                {% if report.images is string %}
+                                    {% for line in report.images.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.images %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if report.imageUrls %}
+                                {% if report.imageUrls is string %}
+                                    {% for line in report.imageUrls.splitlines() %}
+                                        {% for part in line.split(',') %}
+                                            {% set v = part.strip() %}
+                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for item in report.imageUrls %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {# sanitize and dedupe while preserving order #}
+                            {% set seen = [] %}
+                            {% set normalized_list = [] %}
+                            {% for u in image_list %}
+                                {% if u is string %}
+                                    {% set uu = u.strip() %}
+                                    {% if uu.startswith('<') and uu.endswith('>') %}{% set uu = uu[1:-1].strip() %}{% endif %}
+                                    {% set uu = uu.strip().strip('"').strip("'") %}
+                                    {% if uu and uu not in seen %}
+                                        {% set seen = seen + [uu] %}
+                                        {% set normalized_list = normalized_list + [uu] %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {# final image_list now in normalized_list #}
+                            {% set image_list = normalized_list %}
+
+                            {# --- Determine images_only by extension check (strip ?/# for check) --- #}
                             {% set img_exts = ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
                             {% set images_only = [] %}
                             {% if report.evidence_url %}
                                 {% set ev = report.evidence_url %}
-                                {% if ev.startswith('<') and ev.endswith('>') %}{% set ev = ev[1:-1].strip() %}{% endif %}
-                                {% set ev_check = ev.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
-                                {% if ev_ext in img_exts %}
-                                    {% set images_only = images_only + [report.evidence_url] %}
+                                {% if ev is string %}
+                                    {% set ev2 = ev.strip() %}
+                                    {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
+                                    {% set candidate = ev2.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                    {% if ext in img_exts %}
+                                        {% set images_only = images_only + [ev] %}
+                                    {% endif %}
                                 {% endif %}
                             {% endif %}
 
                             {% for url in image_list %}
                                 {% set u = url %}
-                                {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
+                                {% set candidate = u.split('?')[0].split('#')[0].rstrip('/') %}
+                                {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
                                 {% if ext in img_exts and (u not in images_only) %}
                                     {% set images_only = images_only + [u] %}
                                 {% endif %}
                             {% endfor %}
 
+                            {# --- Render evidence_url (image only when extension matches) --- #}
                             {% if report.evidence_url %}
-                                {% set ev_for_check = report.evidence_url %}
-                                {% if ev_for_check.startswith('<') and ev_for_check.endswith('>') %}{% set ev_for_check = ev_for_check[1:-1].strip() %}{% endif %}
-                                {% set ev_check = ev_for_check.split('?')[0].split('#')[0].rstrip('/') %}
-                                {% set ev_ext = ev_check.rsplit('.',1)[-1]|lower if '.' in ev_check else '' %}
-                                {% if ev_ext in img_exts %}
-                                    <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
-                                {% else %}
-                                    <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                {% set evsrc = report.evidence_url %}
+                                {% if evsrc is string %}
+                                    {% set ev2 = evsrc.strip() %}
+                                    {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
+                                    {% set chk = ev2.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = chk.rsplit('.',1)[-1]|lower if '.' in chk else '' %}
+                                    {% if ext in img_exts %}
+                                        <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
+                                    {% else %}
+                                        <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                    {% endif %}
                                 {% endif %}
                             {% endif %}
 
+                            {# --- Render gallery thumbnails (only those with valid extension) --- #}
                             {% if image_list and image_list|length > 0 %}
                                 <div class="evidence-gallery">
                                     {% for url in image_list %}
                                         {% set u = url %}
-                                        {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                        {% set clean = u.split('?')[0].split('#')[0].rstrip('/') %}
-                                        {% set ext = clean.rsplit('.',1)[-1]|lower if '.' in clean else '' %}
+                                        {% set candidate = u.split('?')[0].split('#')[0].rstrip('/') %}
+                                        {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
                                         {% if ext in img_exts %}
                                             <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
                                         {% else %}
@@ -218,14 +260,24 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
+
                         </div>
 
+                        {# provide JS lightbox with only the image-extension-matching urls #}
                         <script type="application/json" data-report-images-for="{{ report.id }}">
                             {{ (images_only or []) | tojson }}
                         </script>
 
                     </div>
 
+                    <footer class="report-card-actions">
+                        <form action="/approve/{{ report.id }}" method="post" class="action-form">
+                            <button type="submit" class="admin-button small">Approve</button>
+                        </form>
+                        <form action="/deny/{{ report.id }}" method="post" class="action-form">
+                            <button type="submit" class="deny-button small">Deny</button>
+                        </form>
+                    </footer>
                 </article>
             {% endif %}
         {% endfor %}
@@ -301,7 +353,7 @@
     }
 
     document.querySelectorAll('.report-card').forEach(card => {
-        const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="r-"]') && card.querySelector('[id^="r-"]').id.replace('r-',''));
+        const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="p-"]') && card.querySelector('[id^="p-"]').id.replace('p-',''));
         const galleryFromJSON = reportImages[reportId] || [];
         card.addEventListener('click', (ev) => {
             const target = ev.target;
