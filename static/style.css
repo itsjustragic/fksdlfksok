@@ -1,0 +1,177 @@
+/* style.css - Styles with animations */
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #000;
+    color: #fff;
+    animation: fadeIn 1s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+header {
+    background-color: #333;
+    padding: 10px;
+}
+
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+h1 {
+    margin: 0;
+}
+
+nav ul {
+    list-style: none;
+    display: flex;
+    gap: 20px;
+}
+
+nav a {
+    color: #fff;
+    text-decoration: none;
+}
+
+.hero {
+    display: flex;
+    justify-content: space-between;
+    padding: 50px;
+    background-color: #000;
+}
+
+.hero-text {
+    max-width: 50%;
+}
+
+.hero-text h2 {
+    font-size: 3em;
+    color: #ccc;
+}
+
+.hero-image img {
+    width: 400px;
+    filter: grayscale(100%);
+}
+
+.about {
+    padding: 50px;
+    background-color: #fff;
+    color: #000;
+}
+
+.about h3 {
+    text-align: center;
+}
+
+.report-section {
+    padding: 50px;
+    background-color: #000;
+}
+
+.report-header {
+    background-color: #800000;
+    padding: 20px;
+    text-align: center;
+}
+
+.report-header h2 {
+    font-size: 2.5em;
+}
+
+form {
+    background-color: #001;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+label {
+    color: #ccc;
+}
+
+input, select, textarea {
+    background-color: #333;
+    border: none;
+    padding: 10px;
+    color: #fff;
+}
+
+button {
+    background-color: #fff;
+    color: #000;
+    padding: 10px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #ccc;
+}
+
+.reports-section {
+    padding: 50px;
+}
+
+.report-card {
+    background-color: #111;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: slideIn 0.5s ease-in;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+}
+
+.report-card h2 {
+    color: #f00;
+}
+
+.report-card .evidence {
+    display: flex;
+    gap: 20px;
+}
+
+.evidence img {
+    width: 200px;
+}
+
+#admin-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+#admin-content {
+    background: #333;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+#admin-panel {
+    display: none;
+}
+
+.pending-report {
+    background: #222;
+    padding: 10px;
+    margin: 10px 0;
+}
