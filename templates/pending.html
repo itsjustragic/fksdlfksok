@@ -1,0 +1,65 @@
+<!-- templates/pending.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pending Reports - Charlie Kirk Memorial</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-container">
+            <h1>CHARLIE KIRK MEMORIAL</h1>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/report">Report</a></li>
+                    <li><a href="/reports">Reports</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+    <section class="reports-section">
+        <h2>Pending Reports</h2>
+        {% for report in reports %}
+        <div class="report-card">
+            <h3>{{ report.full_name }}</h3>
+            <p>Location: {{ report.location }}</p>
+            <p>Occupation: {{ report.occupation or 'N/A' }}</p>
+            <p>Employer: {{ report.employer or 'N/A' }}</p>
+            <p>Category: {{ report.category }}</p>
+            <p>Platform: {{ report.platform }}</p>
+            <p>Description: {{ report.description }}</p>
+            <p>Submitter Email: {{ report.email or 'N/A' }}</p>
+            <div>
+                Evidence: 
+                {% set ext = report.evidence_url.split('.')[-1]|lower %}
+                {% if ext in ['jpg', 'jpeg', 'png', 'gif'] %}
+                <img src="{{ report.evidence_url }}" alt="Evidence Image">
+                {% else %}
+                <a href="{{ report.evidence_url }}">{{ report.evidence_url }}</a>
+                {% endif %}
+            </div>
+            {% if report.image_urls and report.image_urls|length > 0 %}
+            <div class="evidence">
+                {% for url in report.image_urls %}
+                {% set img_ext = url.split('.')[-1]|lower %}
+                {% if img_ext in ['jpg', 'jpeg', 'png', 'gif'] %}
+                <img src="{{ url }}" alt="Additional Evidence">
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+            <form action="/approve/{{ report.id }}" method="post">
+                <button type="submit" class="admin-button">Approve</button>
+            </form>
+            <form action="/deny/{{ report.id }}" method="post">
+                <button type="submit" class="deny-button">Deny</button>
+            </form>
+        </div>
+        {% endfor %}
+    </section>
+    <script src="/static/script.js"></script>
+</body>
+</html>
