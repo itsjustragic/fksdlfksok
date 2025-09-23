@@ -44,6 +44,24 @@
       max-width: 100%;
     }
 
+    /* NEW: when there are only videos (no gallery), make videos layout grid & full width */
+    .report-evidence.only-videos {
+      /* ensure container allows full width for videos */
+      align-items: stretch;
+    }
+    .report-evidence.only-videos .evidence-videos {
+      max-width: 100%;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      align-items: start;
+      margin-top: 0;
+    }
+    /* when only gallery, make gallery use full width (existing behavior) */
+    .report-evidence.only-gallery .evidence-gallery {
+      max-width: 100%;
+    }
+
     .lightbox-caption { margin-top:10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
     /* NEW: video + copy UI */
@@ -671,6 +689,20 @@
     });
   }
 
+  /* Adjust layout classes so videos-only becomes grid */
+  function adjustMediaLayout() {
+    Array.from(document.querySelectorAll('.report-evidence')).forEach(container => {
+      const hasGallery = !!container.querySelector('.evidence-gallery');
+      const hasVideos = !!container.querySelector('.evidence-videos');
+      container.classList.remove('only-videos','only-gallery');
+      if (hasVideos && !hasGallery) {
+        container.classList.add('only-videos');
+      } else if (hasGallery && !hasVideos) {
+        container.classList.add('only-gallery');
+      }
+    });
+  }
+
   /* main gather/inject function */
   function gatherAndInjectAll() {
     const cards = Array.from(document.querySelectorAll('.report-card'));
@@ -738,6 +770,9 @@
 
     // wire copy buttons after injection
     wireCopyButtons(document);
+
+    // ensure layout classes reflect current DOM state (videos-only => grid)
+    adjustMediaLayout();
   }
 
   /* Lightbox wiring — reuse your existing DOM elements for images */
