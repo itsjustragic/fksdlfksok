@@ -210,14 +210,14 @@
     <div class="lightbox-caption" id="lightbox-caption"></div>
 </div>
 
-<!-- Unified image fixer (single copy) -->
 <script>
+/* --- patch: smarter injection + "View evidence" click-to-open --- */
 (function(){
   'use strict';
-
   const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
   const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
 
+  /* reuse/duplicate your normalize/parse/extract/inject functions (or if they already exist in the file, remove duplicates) */
   function normalizeUrl(u){
     if (!u || typeof u !== 'string') return '';
     u = u.trim();
@@ -289,115 +289,125 @@
     return injected;
   }
 
-  function wireDelegatedLightbox(){
-    const lightbox = document.getElementById('lightbox');
-    const lightboxImg = document.getElementById('lightbox-img');
-    const caption = document.getElementById('lightbox-caption');
-    if (!lightbox || !lightboxImg) return;
+  /* lightbox wiring (very small; assumes lightbox HTML exists) */
+  const lightbox = document.getElementById('lightbox');
+  const lightboxImg = document.getElementById('lightbox-img');
+  const caption = document.getElementById('lightbox-caption');
+  const prevBtn = document.querySelector('.lightbox-arrow.left');
+  const nextBtn = document.querySelector('.lightbox-arrow.right');
+  const closeBtn = document.querySelector('.lightbox-close');
 
-    let currentGallery = [];
-    let currentIndex = 0;
-    function openGallery(g, idx){
-      currentGallery = g.slice();
-      currentIndex = Math.max(0, Math.min(idx || 0, currentGallery.length - 1));
-      lightboxImg.src = currentGallery[currentIndex];
-      lightboxImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-      caption.textContent = lightboxImg.alt || '';
-      lightbox.classList.add('visible');
-      lightbox.setAttribute('aria-hidden','false');
-      // show arrows if multiple
-      const prevBtn = document.querySelector('.lightbox-arrow.left');
-      const nextBtn = document.querySelector('.lightbox-arrow.right');
-      if (prevBtn && nextBtn) {
-        if (currentGallery.length > 1) { prevBtn.style.display = 'flex'; nextBtn.style.display = 'flex'; } else { prevBtn.style.display='none'; nextBtn.style.display='none'; }
-      }
+  let currentGallery = [];
+  let currentIndex = 0;
+  function openGallery(g, idx){
+    currentGallery = g.slice();
+    currentIndex = Math.max(0, Math.min(idx || 0, currentGallery.length - 1));
+    lightboxImg.src = currentGallery[currentIndex];
+    lightboxImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+    caption.textContent = lightboxImg.alt;
+    lightbox.classList.add('visible');
+    lightbox.setAttribute('aria-hidden','false');
+    if (prevBtn && nextBtn) {
+      if (currentGallery.length > 1) { prevBtn.style.display = 'flex'; nextBtn.style.display = 'flex'; } else { prevBtn.style.display='none'; nextBtn.style.display='none'; }
     }
-    function closeLightbox(){
-      lightbox.classList.remove('visible');
-      lightbox.setAttribute('aria-hidden','true');
-      lightboxImg.src = '';
-      currentGallery = [];
-      currentIndex = 0;
-    }
-    function prev(){ if (currentGallery.length <= 1) return; currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length; lightboxImg.src = currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
-    function next(){ if (currentGallery.length <= 1) return; currentIndex = (currentIndex + 1) % currentGallery.length; lightboxImg.src = currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
-
-    const prevBtn = document.querySelector('.lightbox-arrow.left');
-    const nextBtn = document.querySelector('.lightbox-arrow.right');
-    const closeBtn = document.querySelectorAll('.lightbox-close')[0];
-
-    if (prevBtn) { try { prevBtn.removeEventListener('click', prev); } catch(e){} prevBtn.addEventListener('click', prev); }
-    if (nextBtn) { try { nextBtn.removeEventListener('click', next); } catch(e){} nextBtn.addEventListener('click', next); }
-    if (closeBtn) { try { closeBtn.removeEventListener('click', closeLightbox); } catch(e){} closeBtn.addEventListener('click', closeLightbox); }
-    lightbox.addEventListener('click', function(ev){ if (ev.target === lightbox) closeLightbox(); });
-
-    // delegated click handler
-    try { document.removeEventListener('click', document.__evidenceClickHandler); } catch(e){}
-    document.__evidenceClickHandler = function(ev){
-      const t = ev.target;
-      if (!t || !t.classList) return;
-      if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image'))) return;
-      const card = t.closest('.report-card');
-      if (!card) return;
-      const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
-      let gallery = imgs.length ? imgs : (function(){
-        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,''));
-        return parseJsonPayloadForId(id);
-      })();
-      if (!gallery || !gallery.length) return;
-      const clicked = t.src || t.getAttribute('src') || '';
-      let idx = gallery.indexOf(clicked);
-      if (idx === -1) idx = 0;
-      openGallery(gallery, idx);
-    };
-    document.addEventListener('click', document.__evidenceClickHandler);
-
-    // keyboard nav
-    try { document.removeEventListener('keydown', document.__evidenceKeyHandler); } catch(e){}
-    document.__evidenceKeyHandler = function(ev){
-      if (!lightbox.classList.contains('visible')) return;
-      if (ev.key === 'Escape') closeLightbox();
-      if (ev.key === 'ArrowLeft') prev();
-      if (ev.key === 'ArrowRight') next();
-    };
-    document.addEventListener('keydown', document.__evidenceKeyHandler);
   }
+  function closeLightbox(){ if (!lightbox) return; lightbox.classList.remove('visible'); lightbox.setAttribute('aria-hidden','true'); lightboxImg.src = ''; currentGallery = []; currentIndex = 0; }
+  function prev(){ if (currentGallery.length<=1) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; lightboxImg.src=currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+  function next(){ if (currentGallery.length<=1) return; currentIndex=(currentIndex+1)%currentGallery.length; lightboxImg.src=currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
 
+  if (prevBtn) prevBtn.addEventListener('click', prev);
+  if (nextBtn) nextBtn.addEventListener('click', next);
+  if (closeBtn) closeBtn.addEventListener('click', closeLightbox);
+  if (lightbox) lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
+  document.addEventListener('keydown', e => { if (!lightbox || !lightbox.classList.contains('visible')) return; if (e.key === 'Escape') closeLightbox(); if (e.key === 'ArrowLeft') prev(); if (e.key === 'ArrowRight') next(); });
+
+  /* NEW: smarter run that only skips when gallery/thumbs already exist */
   function runOnce(){
     const cards = Array.from(document.querySelectorAll('.report-card'));
     cards.forEach(card => {
-      if (card.querySelector('.thumb, .evidence-image')) return;
+      // skip if there's already a gallery or injected thumbs
+      if (card.querySelector('.evidence-gallery') || card.querySelector('.thumb')) return;
+
+      // determine id (report id)
       let id = card.getAttribute('data-id') || '';
       if (!id) {
         const header = card.querySelector('[id^="r-"],[id^="p-"]');
-        if (header && header.id) id = header.id.replace(/^r-|^p-/,'');
+        if (header && header.id) id = header.id.replace(/^r-|^p-/, '');
       }
+
+      // parse JSON payload and DOM tokens
       const payload = id ? parseJsonPayloadForId(id) : [];
       const dom = extractFromDom(card);
       const combined = Array.from(new Set((payload.concat(dom)).map(normalizeUrl).filter(Boolean)));
       const images = combined.filter(u => IMG_EXT_RE.test(u));
       if (images.length) injectImages(card, images);
     });
-    wireDelegatedLightbox();
+
+    // wire delegated click for thumbs that may be injected later
+    document.removeEventListener('click', document.__evidenceClickHandler||function(){});
+    document.__evidenceClickHandler = function(ev){
+      const t = ev.target;
+      if (!t || !t.classList) return;
+      if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
+
+      // if it's the "View evidence" link, prevent default and open gallery
+      if (t.classList.contains('evidence-link')) {
+        ev.preventDefault();
+        const card = t.closest('.report-card');
+        if (!card) { window.open(t.href, '_blank'); return; }
+
+        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,''));
+        let gallery = id ? parseJsonPayloadForId(id) : [];
+        // fallback to DOM tokens
+        if (!gallery.length) {
+          gallery = extractFromDom(card).filter(u => IMG_EXT_RE.test(u));
+        }
+        if (!gallery.length) {
+          // nothing we can show — open link in new tab
+          window.open(t.href, '_blank');
+          return;
+        }
+        // ensure thumbnails exist in the card and open lightbox
+        injectImages(card, gallery);
+        // prefer images found in DOM order (thumbs/evidence-image) for index mapping
+        const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+        openGallery(imgs.length ? imgs : gallery, 0);
+        return;
+      }
+
+      // thumb or evidence-image clicked -> open the card gallery
+      const card = t.closest('.report-card');
+      if (!card) return;
+      const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+      if (imgs.length) {
+        let idx = imgs.indexOf(t.src || t.getAttribute('src') || '');
+        if (idx === -1) idx = 0;
+        openGallery(imgs, idx);
+      } else {
+        // fallback: try payload
+        const id = card.getAttribute('data-id') || '';
+        const gallery = id ? parseJsonPayloadForId(id) : [];
+        if (gallery.length) openGallery(gallery, 0);
+      }
+    };
+    document.addEventListener('click', document.__evidenceClickHandler);
   }
 
-  // run after DOM ready
+  /* run on DOM ready */
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', runOnce);
   } else {
-    setTimeout(runOnce, 20);
+    setTimeout(runOnce, 10);
   }
 
-  // expose for backwards compatibility and debugging
-  window.__unified_image_fixer = { run: runOnce, parseJsonPayloadForId: parseJsonPayloadForId };
-  // ensure older callers still work
-  window.__reports_image_fixer = window.__reports_image_fixer || { run: runOnce };
-
+  window.__unified_image_fixer = { run: runOnce, parseJsonPayloadForId: parseJsonPayloadForId, injectImages: injectImages };
 })();
 </script>
+
 
 <!-- Your main app script (keeps existing behavior) -->
 <script src="/static/script.js"></script>
 
 </body>
 </html>
+
