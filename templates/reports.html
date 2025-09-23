@@ -10,12 +10,9 @@
     /* lightbox / thumb styles */
     .lightbox-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:99999; padding:20px; }
     .lightbox-overlay.visible { display:flex; }
-    /* container holds image; allow overflow so arrows can sit outside image */
     .lightbox-container { position: relative; max-width:95%; max-height:95%; display:flex; align-items:center; justify-content:center; overflow: visible; }
     .lightbox-image { max-width:100%; max-height:100%; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display:block; }
     .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer }
-    /* arrows: initially hidden, displayed by JS only when gallery length > 1
-       positioned outside the image using negative offsets; overlay padding supplies space */
     .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.55); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; display:none; align-items:center; justify-content:center; }
     .lightbox-arrow.left { left: calc(-1 * (48px + 8px)); }   /* slightly outside left */
     .lightbox-arrow.right { right: calc(-1 * (48px + 8px)); }  /* slightly outside right */
@@ -49,41 +46,28 @@
         <p class="subtitle">Verified reports made public.</p>
     </div>
 
-    <!-- FILTER CONTROLS -->
+    <!-- FILTER CONTROLS (unchanged) -->
     <div class="reports-controls" aria-label="Filter reports">
         <div class="controls-inner">
             <label for="reports-search" class="visually-hidden">Search reports</label>
             <input id="reports-search" type="search" placeholder="Search by name, description, employer, platform..." aria-label="Search reports">
-
             <label for="reports-state" class="visually-hidden">Filter by state</label>
             <select id="reports-state" aria-label="Filter reports by state">
                 <option value="ALL">All States</option>
-                <!-- ...states... -->
-                <option value="UT">Utah</option>
+                <!-- states list -->
             </select>
         </div>
-
         <div id="no-results" class="no-results" style="display:none;">No reports match your filter.</div>
     </div>
 
     <div class="reports-grid" id="reports-grid">
         {% set _seen_sigs = [] %}
-
         {% for report in reports %}
             {% set sig = (report.full_name or '') ~ '|' ~ (report.platform or '') ~ '|' ~ (report.description or '') ~ '|' ~ (report.evidence_url or '') %}
             {% if sig in _seen_sigs %}
-                {# skip duplicate rendering #}
             {% else %}
                 {% set _seen_sigs = _seen_sigs + [sig] %}
-
-                <article
-                    class="report-card"
-                    role="article"
-                    aria-labelledby="r-{{ report.id }}"
-                    data-id="{{ report.id }}"
-                    data-fulltext="{{ (report.full_name or '') ~ ' ' ~ (report.description or '') ~ ' ' ~ (report.employer or '') ~ ' ' ~ (report.platform or '') ~ ' ' ~ (report.category or '') ~ ' ' ~ (report.location or '') }}"
-                    data-location="{{ report.location or '' }}"
-                >
+                <article class="report-card" role="article" aria-labelledby="r-{{ report.id }}" data-id="{{ report.id }}">
                     <header class="report-card-header">
                         <h3 id="r-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
                         <div class="meta">
@@ -94,7 +78,7 @@
                     </header>
 
                     <div class="report-card-body">
-                        <p class="small"><strong>Category:</strong> {{ report.category }}</p>
+                        <p class="small"><strong>Category:</strong> {{ report.category or 'N/A' }}</p>
                         <p class="small"><strong>Occupation:</strong> {{ report.occupation or 'N/A' }}</p>
                         <p class="small"><strong>Employer:</strong> {{ report.employer or 'N/A' }}</p>
                         <p class="small"><strong>Address:</strong> {{ report.address or 'N/A' }}</p>
@@ -103,7 +87,7 @@
                         <p class="desc">{{ report.description }}</p>
 
                         <div class="report-evidence">
-                            {# attempt to render evidence_url if it looks like an image #}
+                            {# server-side attempt to render evidence_url if image #}
                             {% if report.evidence_url %}
                                 {% set ev2 = report.evidence_url %}
                                 {% if ev2 is string %}
@@ -118,7 +102,7 @@
                                 {% endif %}
                             {% endif %}
 
-                            {# build image_list (same robust parsing you already had) #}
+                            {# server-side robust image_list construction (unchanged) #}
                             {% set image_list = [] %}
                             {% if report.image_urls %}
                                 {% if report.image_urls is string %}
@@ -159,7 +143,6 @@
                                 {% endif %}
                             {% endfor %}
 
-                            {# normalize & dedupe preserving order #}
                             {% set seen = [] %}
                             {% set normalized = [] %}
                             {% for u in image_list %}
@@ -172,7 +155,6 @@
                             {% endfor %}
                             {% set image_list = normalized %}
 
-                            {# extension-based filter #}
                             {% set img_exts = ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
                             {% set images_only = [] %}
                             {% if report.evidence_url %}
@@ -191,7 +173,6 @@
                                 {% if ext in img_exts and (url not in images_only) %}{% set images_only = images_only + [url] %}{% endif %}
                             {% endfor %}
 
-                            {# server-rendered gallery if any #}
                             {% if image_list and image_list|length > 0 %}
                                 <div class="evidence-gallery">
                                     {% for url in image_list %}
@@ -205,16 +186,13 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
-
                         </div>
 
-                        {# JS lightbox payload #}
                         <script type="application/json" data-report-images-for="{{ report.id }}">
                             {{ (images_only or []) | tojson }}
                         </script>
 
                     </div>
-
                 </article>
             {% endif %}
         {% endfor %}
@@ -235,213 +213,144 @@
 <script>
 (function(){
     'use strict';
-
     const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
     const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
 
-    function normalizeUrl(u) {
-        if (!u) return '';
-        u = ('' + u).trim();
-        if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
-        if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
-        return u.trim();
-    }
+    function normalizeUrl(u){ if(!u) return ''; u = (''+u).trim(); if(u.startsWith('<')&&u.endsWith('>')) u=u.slice(1,-1).trim(); if((u.startsWith('"')&&u.endsWith('"'))||(u.startsWith("'")&&u.endsWith("'"))) u=u.slice(1,-1); return u.trim(); }
 
-    // Read JSON payloads emitted by server
-    const imageScripts = Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]'));
+    // collect JSON payloads keyed by report id
     const reportImages = {};
-    imageScripts.forEach(s => {
+    Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]')).forEach(s=>{
+        const rid = (s.getAttribute('data-report-images-for')||'').toString();
+        if(!rid) return;
         try {
-            const id = s.getAttribute('data-report-images-for');
-            const arr = JSON.parse(s.textContent || '[]');
-            reportImages[id] = Array.isArray(arr) ? arr.map(normalizeUrl).filter(Boolean) : [];
-        } catch (e) {
-            // ignore parse errors
-            try {
-                const id = s.getAttribute('data-report-images-for');
-                const found = (s.textContent || '').match(HTTP_IMG_TOKEN_RE) || [];
-                reportImages[id] = found.map(normalizeUrl);
-            } catch(_) { /*noop*/ }
+            const parsed = JSON.parse(s.textContent || '[]');
+            if(Array.isArray(parsed)) reportImages[rid] = parsed.map(normalizeUrl).filter(Boolean);
+            else if(typeof parsed === 'string') reportImages[rid] = parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+            else reportImages[rid] = [];
+        } catch(e){
+            const found = (s.textContent||'').match(HTTP_IMG_TOKEN_RE) || [];
+            reportImages[rid] = found.map(normalizeUrl);
         }
     });
 
-    // Lightbox elements
+    // lightbox elements
     const lightbox = document.getElementById('lightbox');
     const imgEl = document.getElementById('lightbox-img');
     const captionEl = document.getElementById('lightbox-caption');
     const btnPrev = document.getElementById('lb-prev');
     const btnNext = document.getElementById('lb-next');
     const btnClose = document.getElementById('lb-close');
+    let currentGallery = [], currentIndex = 0;
 
-    let currentGallery = [];
-    let currentIndex = 0;
-
-    function showLightbox(gallery, index) {
-        if (!gallery || gallery.length === 0) return;
+    function showLightbox(gallery, idx){
+        if(!gallery || !gallery.length) return;
         currentGallery = gallery.slice();
-        currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
+        currentIndex = Math.max(0, Math.min(idx||0, currentGallery.length-1));
         imgEl.src = currentGallery[currentIndex];
-        imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+        imgEl.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length;
         captionEl.textContent = imgEl.alt;
-        // show arrows only if more than one image
-        if (currentGallery.length > 1) {
-            btnPrev.style.display = 'flex';
-            btnNext.style.display = 'flex';
-        } else {
-            btnPrev.style.display = 'none';
-            btnNext.style.display = 'none';
-        }
-        lightbox.classList.add('visible');
-        lightbox.setAttribute('aria-hidden', 'false');
+        if(currentGallery.length > 1){ btnPrev.style.display='flex'; btnNext.style.display='flex'; } else { btnPrev.style.display='none'; btnNext.style.display='none'; }
+        lightbox.classList.add('visible'); lightbox.setAttribute('aria-hidden','false');
     }
+    function hideLightbox(){ lightbox.classList.remove('visible'); lightbox.setAttribute('aria-hidden','true'); imgEl.src=''; currentGallery=[]; currentIndex=0; btnPrev.style.display='none'; btnNext.style.display='none'; }
+    function showPrev(){ if(currentGallery.length<=1) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; imgEl.src=currentGallery[currentIndex]; captionEl.textContent='Image '+(currentIndex+1)+' of '+currentGallery.length; }
+    function showNext(){ if(currentGallery.length<=1) return; currentIndex=(currentIndex+1)%currentGallery.length; imgEl.src=currentGallery[currentIndex]; captionEl.textContent='Image '+(currentIndex+1)+' of '+currentGallery.length; }
 
-    function hideLightbox() {
-        lightbox.classList.remove('visible');
-        lightbox.setAttribute('aria-hidden', 'true');
-        imgEl.src = '';
-        currentGallery = [];
-        currentIndex = 0;
-        btnPrev.style.display = 'none';
-        btnNext.style.display = 'none';
-    }
-
-    function showPrev() {
-        if (currentGallery.length <= 1) return;
-        currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
-        imgEl.src = currentGallery[currentIndex];
-        imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-        captionEl.textContent = imgEl.alt;
-    }
-
-    function showNext() {
-        if (currentGallery.length <= 1) return;
-        currentIndex = (currentIndex + 1) % currentGallery.length;
-        imgEl.src = currentGallery[currentIndex];
-        imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-        captionEl.textContent = imgEl.alt;
-    }
-
-    // Extract image URLs from a card's DOM (imgs, links, text tokens)
-    function extractFromDOM(card) {
-        const found = new Set();
-        // images already present
-        Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
-        // links
-        Array.from(card.querySelectorAll('a')).forEach(a => {
-            const href = a.getAttribute('href') || '';
-            if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
-        });
-        // search visible text for image tokens
+    function extractFromDOM(card){
+        const s = new Set();
+        Array.from(card.querySelectorAll('img')).forEach(i=>{ if(i.src) s.add(normalizeUrl(i.src)); });
+        Array.from(card.querySelectorAll('a')).forEach(a=>{ const h=a.getAttribute('href')||''; if(IMG_EXT_RE.test(h)) s.add(normalizeUrl(h)); });
         const text = card.innerText || card.textContent || '';
-        let match;
-        while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) {
-            found.add(normalizeUrl(match[0]));
-        }
-        return Array.from(found);
+        let m;
+        while((m=HTTP_IMG_TOKEN_RE.exec(text))!==null) s.add(normalizeUrl(m[0]));
+        return Array.from(s);
     }
 
-    // Build gallery DOM if none exists; returns array of injected URLs
-    function buildGallery(card, urls) {
-        if (!urls || !urls.length) return [];
-        // existing gallery
+    function buildGallery(card, urls){
+        if(!urls||!urls.length) return [];
         let gallery = card.querySelector('.evidence-gallery');
-        let created = false;
-        if (!gallery) {
-            gallery = document.createElement('div');
-            gallery.className = 'evidence-gallery';
-            created = true;
-        }
-        const existingSrc = new Set(Array.from(gallery.querySelectorAll('img')).map(i => normalizeUrl(i.src)));
+        let created=false;
+        if(!gallery){ gallery=document.createElement('div'); gallery.className='evidence-gallery'; created=true; }
+        const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i=>normalizeUrl(i.src)));
         const injected = [];
-        urls.forEach(u => {
-            if (!u) return;
-            if (!IMG_EXT_RE.test(u)) return;
-            if (existingSrc.has(u)) return;
-            try {
-                const img = document.createElement('img');
-                img.src = u;
-                img.alt = 'Additional evidence';
-                img.loading = 'lazy';
-                img.className = 'thumb';
-                img.setAttribute('data-auto-injected', '1');
-                gallery.appendChild(img);
-                injected.push(u);
-                existingSrc.add(u);
-            } catch(e) { console.warn('buildGallery append error', e); }
+        urls.forEach(u=>{
+            if(!u) return;
+            if(!IMG_EXT_RE.test(u)) return;
+            if(existing.has(u)) return;
+            const img = document.createElement('img');
+            img.src=u; img.alt='Additional evidence'; img.loading='lazy'; img.className='thumb'; img.setAttribute('data-auto-injected','1');
+            gallery.appendChild(img);
+            injected.push(u); existing.add(u);
         });
-        if (created) {
-            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
-            evidenceContainer.appendChild(gallery);
-        }
+        if(created){ const evidenceContainer = card.querySelector('.report-evidence')||card.querySelector('.report-card-body')||card; evidenceContainer.appendChild(gallery); }
         return injected;
     }
 
-    // Process all report cards: use server JSON payload first, then DOM tokens, inject if needed
-    function gatherAndInjectAll() {
+    function gatherAndInjectAll(){
         const cards = Array.from(document.querySelectorAll('.report-card'));
-        cards.forEach(card => {
+        console.info('reports-fixer: processing', cards.length, 'cards');
+        cards.forEach(card=>{
             try {
-                const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="r-"]') && card.querySelector('[id^="r-"]').id.replace('r-','')) || 'unknown';
-                const payload = (reportImages[reportId] || []).map(normalizeUrl).filter(Boolean);
+                // prefer explicit data-id (set by template)
+                let rid = (card.getAttribute('data-id') || '').toString();
+                // fallback: any header id starting with r- or p-
+                if(!rid){
+                    const header = card.querySelector('[id^="r-"],[id^="p-"]');
+                    if(header && header.id){ rid = header.id.replace(/^r-|^p-/,''); }
+                }
+                if(!rid) rid = 'unknown';
+                const payload = (reportImages[rid]||[]).map(normalizeUrl).filter(Boolean);
                 const domFound = extractFromDOM(card);
-                // prefer payload order, then dom tokens not in payload
+                // combine with payload first
                 const combined = Array.from(new Set(payload.concat(domFound)));
-                const images = combined.filter(u => IMG_EXT_RE.test(u));
-                if (!images.length) return;
-                buildGallery(card, images);
-            } catch (e) {
-                console.error('gatherAndInjectAll error', e);
+                const images = combined.filter(u=>IMG_EXT_RE.test(u));
+                console.debug('reports-fixer:', rid, 'payload=', payload.length, 'dom=', domFound.length, 'images=', images.length);
+                if(!images.length) return;
+                const injected = buildGallery(card, images);
+                if(injected.length) console.info('reports-fixer:', rid, 'injected', injected.length, 'images');
+            } catch(e){
+                console.error('reports-fixer: card error', e);
             }
         });
     }
 
-    // wire thumb clicks to open lightbox using the gallery present in that card
-    function wireThumbnailClicks() {
-        document.querySelectorAll('.report-card').forEach(card => {
-            card.addEventListener('click', (ev) => {
-                const target = ev.target;
-                if (!(target && target.classList)) return;
-                if (!(target.classList.contains('thumb') || target.classList.contains('evidence-image'))) return;
-                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => normalizeUrl(el.src)).filter(Boolean);
-                const reportId = card.getAttribute('data-id');
-                const fallback = reportImages[reportId] || [];
-                const actualGallery = imgs.length ? imgs : fallback;
-                if (!actualGallery.length) return;
-                const clickedSrc = normalizeUrl(target.src || target.getAttribute('src') || '');
-                let idx = actualGallery.indexOf(clickedSrc);
-                if (idx === -1) idx = 0;
-                showLightbox(actualGallery, idx);
+    function wireThumbnailClicks(){
+        document.querySelectorAll('.report-card').forEach(card=>{
+            card.addEventListener('click', ev=>{
+                const t = ev.target;
+                if(!(t && t.classList)) return;
+                if(!(t.classList.contains('thumb') || t.classList.contains('evidence-image'))) return;
+                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i=>normalizeUrl(i.src)).filter(Boolean);
+                const rid = card.getAttribute('data-id') || ((card.querySelector('[id^="r-"],[id^="p-"]')||{}).id||'').replace(/^r-|^p-/,'');
+                const fallback = reportImages[rid] || [];
+                const gallery = imgs.length? imgs : fallback;
+                if(!gallery.length) return;
+                const clicked = normalizeUrl(t.src || t.getAttribute('src')||'');
+                let idx = gallery.indexOf(clicked); if(idx===-1) idx=0;
+                showLightbox(gallery, idx);
             });
         });
     }
 
     // wire lightbox controls
-    btnPrev.addEventListener('click', showPrev);
-    btnNext.addEventListener('click', showNext);
-    btnClose.addEventListener('click', hideLightbox);
-    lightbox.addEventListener('click', (ev) => { if (ev.target === lightbox || ev.target === captionEl) hideLightbox(); });
-    document.addEventListener('keydown', (ev) => {
-        if (!lightbox.classList.contains('visible')) return;
-        if (ev.key === 'Escape') hideLightbox();
-        if (ev.key === 'ArrowLeft') showPrev();
-        if (ev.key === 'ArrowRight') showNext();
-    });
+    if(btnPrev) btnPrev.addEventListener('click', showPrev);
+    if(btnNext) btnNext.addEventListener('click', showNext);
+    if(btnClose) btnClose.addEventListener('click', hideLightbox);
+    lightbox.addEventListener('click', e=>{ if(e.target===lightbox || e.target===captionEl) hideLightbox(); });
+    document.addEventListener('keydown', e=>{ if(!lightbox.classList.contains('visible')) return; if(e.key==='Escape') hideLightbox(); if(e.key==='ArrowLeft') showPrev(); if(e.key==='ArrowRight') showNext(); });
 
-    // init on DOM ready
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', ()=>{
         try {
             gatherAndInjectAll();
             wireThumbnailClicks();
-            // optionally expose for manual testing
-            window.__reports_image_fixer = { run: () => { gatherAndInjectAll(); wireThumbnailClicks(); } };
-            console.info('reports image-fixer initialized');
-        } catch (e) {
-            console.error('reports image-fixer init error', e);
-        }
+            window.__reports_image_fixer = { run: ()=>{ gatherAndInjectAll(); wireThumbnailClicks(); } };
+            console.info('reports-fixer: initialized');
+        } catch(e){ console.error('reports-fixer init error', e); }
     });
-
 })();
 </script>
 
+<script src="/static/script.js"></script>
 </body>
 </html>
