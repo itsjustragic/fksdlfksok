@@ -46,7 +46,7 @@
                 {# skip duplicate rendering #}
             {% else %}
                 {% set _seen_sigs = _seen_sigs + [sig] %}
-                <article class="report-card" role="article" aria-labelledby="p-{{ report.id }}" data-id="{{ report.id }}">
+                <article class="report-card" role="article" aria-labelledby="p-{{ report.id }}" data-id="{{ report.id }}" data-state="{{ report.state or '' }}" data-location="{{ report.location or '' }}">
                     <header class="report-card-header">
                         <h3 id="p-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
                         <div class="meta">
@@ -111,11 +111,12 @@
                         </div>
 
                         <footer class="report-card-actions" style="margin-top:12px;">
-                            {# keep approve/deny forms if your page requires them; comment out if not needed #}
-                            <form action="/approve/{{ report.id }}" method="post" class="action-form" style="display:inline-block;margin-right:8px;">
+                            {# Approve form now includes a hidden "state" field that we'll populate client-side #}
+                            <form action="/approve/{{ report.id }}" method="post" class="action-form approve-form" style="display:inline-block;margin-right:8px;">
+                                <input type="hidden" name="state" class="approve-state-input" value="{{ report.state or '' }}">
                                 <button type="submit" class="admin-button small">Approve</button>
                             </form>
-                            <form action="/deny/{{ report.id }}" method="post" class="action-form" style="display:inline-block;">
+                            <form action="/deny/{{ report.id }}" method="post" class="action-form deny-form" style="display:inline-block;">
                                 <button type="submit" class="deny-button small">Deny</button>
                             </form>
                         </footer>
@@ -361,5 +362,127 @@
 
 })();
 </script>
+
+<!-- Pending -> Approve state helper: populate hidden "state" input & keep data-state consistent -->
+<script>
+(function(){
+  'use strict';
+
+  const STATES = [
+    {name:'Alabama', abbr:'AL'},{name:'Alaska', abbr:'AK'},{name:'Arizona', abbr:'AZ'},{name:'Arkansas', abbr:'AR'},
+    {name:'California', abbr:'CA'},{name:'Colorado', abbr:'CO'},{name:'Connecticut', abbr:'CT'},{name:'Delaware', abbr:'DE'},
+    {name:'Florida', abbr:'FL'},{name:'Georgia', abbr:'GA'},{name:'Hawaii', abbr:'HI'},{name:'Idaho', abbr:'ID'},
+    {name:'Illinois', abbr:'IL'},{name:'Indiana', abbr:'IN'},{name:'Iowa', abbr:'IA'},{name:'Kansas', abbr:'KS'},
+    {name:'Kentucky', abbr:'KY'},{name:'Louisiana', abbr:'LA'},{name:'Maine', abbr:'ME'},{name:'Maryland', abbr:'MD'},
+    {name:'Massachusetts', abbr:'MA'},{name:'Michigan', abbr:'MI'},{name:'Minnesota', abbr:'MN'},{name:'Mississippi', abbr:'MS'},
+    {name:'Missouri', abbr:'MO'},{name:'Montana', abbr:'MT'},{name:'Nebraska', abbr:'NE'},{name:'Nevada', abbr:'NV'},
+    {name:'New Hampshire', abbr:'NH'},{name:'New Jersey', abbr:'NJ'},{name:'New Mexico', abbr:'NM'},{name:'New York', abbr:'NY'},
+    {name:'North Carolina', abbr:'NC'},{name:'North Dakota', abbr:'ND'},{name:'Ohio', abbr:'OH'},{name:'Oklahoma', abbr:'OK'},
+    {name:'Oregon', abbr:'OR'},{name:'Pennsylvania', abbr:'PA'},{name:'Rhode Island', abbr:'RI'},{name:'South Carolina', abbr:'SC'},
+    {name:'South Dakota', abbr:'SD'},{name:'Tennessee', abbr:'TN'},{name:'Texas', abbr:'TX'},{name:'Utah', abbr:'UT'},
+    {name:'Vermont', abbr:'VT'},{name:'Virginia', abbr:'VA'},{name:'Washington', abbr:'WA'},{name:'West Virginia', abbr:'WV'},
+    {name:'Wisconsin', abbr:'WI'},{name:'Wyoming', abbr:'WY'}
+  ];
+
+  function parseStateFromLocation(loc) {
+    if (!loc) return null;
+    const s = ('' + loc).replace(/\s+/g, ' ').trim();
+    const lower = s.toLowerCase();
+
+    // full name match first
+    for (let st of STATES) {
+      if (lower.includes(st.name.toLowerCase())) return {abbr: st.abbr, name: st.name};
+    }
+    // then try 2-letter abbr token
+    for (let st of STATES) {
+      const re = new RegExp('\\b' + st.abbr + '\\b', 'i');
+      if (re.test(s)) return {abbr: st.abbr, name: st.name};
+    }
+    return null;
+  }
+
+  function populateApproveStateInputs() {
+    document.querySelectorAll('.report-card').forEach(card => {
+      try {
+        // if server already populated data-state, prefer that
+        let state = (card.getAttribute('data-state') || '').trim();
+        const loc = (card.getAttribute('data-location') || '').trim();
+
+        if (!state && loc) {
+          const parsed = parseStateFromLocation(loc);
+          if (parsed && parsed.abbr) state = parsed.abbr;
+        }
+
+        // set the data-state attribute so front-end filtering sees it consistently
+        if (state) card.setAttribute('data-state', state.toUpperCase());
+        else card.setAttribute('data-state', '');
+
+        // populate hidden input in the approve form for this card (if present)
+        const approveForm = card.querySelector('form.approve-form');
+        if (approveForm) {
+          const input = approveForm.querySelector('input.approve-state-input');
+          if (input) input.value = state || '';
+        }
+      } catch (e) {
+        console.warn('populateApproveStateInputs error', e);
+      }
+    });
+  }
+
+  // Ensure the hidden input is set again just before form submit (defensive)
+  function wireApproveFormSubmitGuards() {
+    document.querySelectorAll('form.approve-form').forEach(form => {
+      // avoid adding duplicate handlers
+      if (form.__approve_guarded) return;
+      form.addEventListener('submit', function (ev) {
+        try {
+          const card = form.closest('.report-card');
+          if (!card) return;
+          let state = (card.getAttribute('data-state') || '').trim();
+          const loc = (card.getAttribute('data-location') || '').trim();
+          if (!state && loc) {
+            const parsed = parseStateFromLocation(loc);
+            if (parsed && parsed.abbr) state = parsed.abbr;
+          }
+          const input = form.querySelector('input.approve-state-input');
+          if (input) input.value = state || '';
+        } catch (e) {
+          console.warn('approve submit guard error', e);
+        }
+      });
+      form.__approve_guarded = true;
+    });
+  }
+
+  // run on load and when new cards appear (defensive)
+  function initPendingStateHelpers() {
+    populateApproveStateInputs();
+    wireApproveFormSubmitGuards();
+
+    // observe DOM for dynamically added cards and populate them too
+    const observer = new MutationObserver(mutations => {
+      let found = false;
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length) {
+          for (const n of m.addedNodes) {
+            if (n.nodeType === 1 && n.matches('.report-card')) { found = true; break; }
+          }
+        }
+        if (found) break;
+      }
+      if (found) {
+        setTimeout(() => { populateApproveStateInputs(); wireApproveFormSubmitGuards(); }, 40);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.__pending_state_helper_observer = observer;
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initPendingStateHelpers);
+  else setTimeout(initPendingStateHelpers, 10);
+
+})();
+</script>
+
 </body>
 </html>
