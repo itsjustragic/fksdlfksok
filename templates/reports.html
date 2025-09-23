@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head> 
+<head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Reports - Charlie Kirk Memorial</title>
@@ -23,6 +23,17 @@
     .report-card { background:#111; color:#ddd; padding:20px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); margin:18px 0; }
     .report-evidence { margin-top:12px; }
     .lightbox-caption { margin-top:10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* NEW: video + copy UI */
+    .evidence-videos { margin-top:12px; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+    .video-item { display:flex; flex-direction:column; gap:6px; max-width:320px; }
+    .video-item video { width:100%; height:auto; border-radius:8px; background:#000; }
+    .video-actions { display:flex; gap:8px; align-items:center; }
+    .copy-button { cursor:pointer; padding:6px 8px; border-radius:6px; background: rgba(255,255,255,0.04); color:#fff; border: 1px solid rgba(255,255,255,0.04); font-size:0.9rem; }
+    .social-links { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .social-links a { display:inline-flex; align-items:center; gap:8px; padding:6px 8px; background: rgba(255,255,255,0.02); color:#ddd; border-radius:6px; text-decoration:none; font-size:0.9rem; border:1px solid rgba(255,255,255,0.02); }
+    .social-links a:hover { background: rgba(255,255,255,0.04); color:#fff; }
+
     @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; left: calc(-1 * (42px + 6px)); right: calc(-1 * (42px + 6px)); } }
     </style>
 </head>
@@ -87,7 +98,7 @@
 
                         <!-- ADDED: data-images attribute so client can always read server-provided images -->
                         <div class="report-evidence" data-images='{{ (images_only or report.image_urls or report.image_list or report.images or report.imageUrls or []) | tojson | safe }}'>
-                            {# server-side attempt to render evidence_url if image #}
+                            {# server-side attempt to render evidence_url if image or direct video #}
                             {% if report.evidence_url %}
                                 {% set ev2 = report.evidence_url %}
                                 {% if ev2 is string %}
@@ -96,6 +107,19 @@
                                     {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
                                     {% if ext in ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
                                         <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
+                                    {% elif ext in ['mp4','webm','ogg','mov'] %}
+                                        <div class="evidence-videos">
+                                            <div class="video-item">
+                                                <video controls preload="metadata" crossorigin="anonymous">
+                                                    <source src="{{ report.evidence_url }}" type="video/{{ ext }}">
+                                                    Your browser does not support the video tag.
+                                                </video>
+                                                <div class="video-actions">
+                                                    <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">Open video</a>
+                                                    <button type="button" class="copy-button" data-copy-url="{{ report.evidence_url }}">Copy URL</button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     {% else %}
                                         <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
                                     {% endif %}
@@ -186,10 +210,104 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
+
+                            {# NEW: server-side social links (if present on report object) #}
+                            {% set socials = [] %}
+                            {% if report.twitter_url %}{% set socials = socials + [{'label':'X/Twitter','url':report.twitter_url}] %}{% endif %}
+                            {% if report.instagram_url %}{% set socials = socials + [{'label':'Instagram','url':report.instagram_url}] %}{% endif %}
+                            {% if report.facebook_url %}{% set socials = socials + [{'label':'Facebook','url':report.facebook_url}] %}{% endif %}
+                            {% if report.tiktok_url %}{% set socials = socials + [{'label':'TikTok','url':report.tiktok_url}] %}{% endif %}
+                            {% if report.youtube_url %}{% set socials = socials + [{'label':'YouTube','url':report.youtube_url}] %}{% endif %}
+                            {% if report.other_socials %}
+                                {% if report.other_socials is string %}
+                                    {% for line in report.other_socials.splitlines() %}
+                                        {% set u = line.strip() %}
+                                        {% if u %}{% set socials = socials + [{'label':'Other','url':u}] %}{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for u in report.other_socials %}{% if u %}{% set socials = socials + [{'label':'Other','url':u}] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if socials and socials|length > 0 %}
+                                <div class="social-links" aria-label="social links">
+                                    {% for s in socials %}
+                                        <a href="{{ s.url }}" target="_blank" rel="noopener noreferrer">{{ s.label }}</a>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            {# NEW: server-side video list rendering (report.video_url / report.video_urls / report.videos) #}
+                            {% set vid_list = [] %}
+                            {% if report.video_url %}{% set vid_list = vid_list + [report.video_url] %}{% endif %}
+                            {% if report.video_urls %}
+                                {% if report.video_urls is string %}
+                                    {% for line in report.video_urls.splitlines() %}
+                                        {% set u = line.strip() %}
+                                        {% if u %}{% set vid_list = vid_list + [u] %}{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for u in report.video_urls %}{% if u %}{% set vid_list = vid_list + [u] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+                            {% if report.videos %}
+                                {% if report.videos is string %}
+                                    {% for line in report.videos.splitlines() %}
+                                        {% set u = line.strip() %}
+                                        {% if u %}{% set vid_list = vid_list + [u] %}{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for u in report.videos %}{% if u %}{% set vid_list = vid_list + [u] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if vid_list and vid_list|length > 0 %}
+                                <div class="evidence-videos" aria-label="evidence videos">
+                                    {% for v in vid_list %}
+                                        {% set vstr = v %}
+                                        {% set vcandidate = vstr.split('?')[0].split('#')[0].rstrip('/') %}
+                                        {% set vext = vcandidate.rsplit('.',1)[-1]|lower if '.' in vcandidate else '' %}
+                                        <div class="video-item">
+                                            {% if vext in ['mp4','webm','ogg','mov'] %}
+                                                <video controls preload="metadata" crossorigin="anonymous">
+                                                    <source src="{{ v }}" type="video/{{ vext }}">
+                                                    Your browser does not support the video tag.
+                                                </video>
+                                                <div class="video-actions">
+                                                    <a href="{{ v }}" class="evidence-link" target="_blank" rel="noopener noreferrer">Open video</a>
+                                                    <button type="button" class="copy-button" data-copy-url="{{ v }}">Copy URL</button>
+                                                </div>
+                                            {% else %}
+                                                <a href="{{ v }}" class="evidence-link" target="_blank" rel="noopener noreferrer">Open media</a>
+                                                <button type="button" class="copy-button" data-copy-url="{{ v }}">Copy URL</button>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
                         </div>
 
                         <script type="application/json" data-report-images-for="{{ report.id }}">
                             {{ (images_only or []) | tojson }}
+                        </script>
+
+                        {# NEW: media payload so the client-side injector can also read videos and socials #}
+                        <script type="application/json" data-report-media-for="{{ report.id }}">
+                            {{
+                                (
+                                    {
+                                        "video_urls": (report.video_urls or report.videos or []),
+                                        "video_url": (report.video_url or ''),
+                                        "twitter_url": (report.twitter_url or ''),
+                                        "instagram_url": (report.instagram_url or ''),
+                                        "facebook_url": (report.facebook_url or ''),
+                                        "tiktok_url": (report.tiktok_url or ''),
+                                        "youtube_url": (report.youtube_url or ''),
+                                        "other_socials": (report.other_socials or [])
+                                    }
+                                ) | tojson
+                            }}
                         </script>
 
                     </div>
@@ -215,7 +333,9 @@
   'use strict';
 
   const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
+  const VIDEO_EXT_RE = /\.(mp4|webm|ogg|mov|m3u8|ts)(?:[?#].*)?$/i;
   const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+  const HTTP_VIDEO_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:mp4|webm|ogg|mov|m3u8|ts)(?:[?#][^\s'"]*)?/gi;
   const DEBOUNCE_MS = 120;
 
   function normalizeUrl(u) {
@@ -226,38 +346,29 @@
     return u.trim();
   }
 
-  // Prefer data-images attribute on the card's .report-evidence element,
-  // then fallback to the existing <script type="application/json"> payload,
-  // then fallback to scanning text for http image tokens.
-  function extractFromScriptPayload(card) {
+  /* Read images from data- attribute or script payload (existing logic) */
+  function extractImagesFromScriptPayload(card) {
     try {
-      // 1) data-images attribute (preferred)
       const evidenceEl = card.querySelector('.report-evidence');
       if (evidenceEl && evidenceEl.dataset && evidenceEl.dataset.images) {
         try {
           const parsed = JSON.parse(evidenceEl.dataset.images);
-          if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
-          if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+          if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+          if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
         } catch (e) {
-          // fall through to next method
           console.warn('image-fixer: failed to parse data-images for card', card, e);
         }
       }
-
-      // 2) <script type="application/json" data-report-images-for="ID">
-      const script = card.querySelector('script[type="application/json"][data-report-images-for]') || (function(){
-        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,'')) || '';
-        return id ? document.querySelector('script[type="application/json"][data-report-images-for="'+id+'"]') : null;
-      })();
+      const script = card.querySelector('script[type="application/json"][data-report-images-for]');
       if (!script) return [];
       const txt = script.textContent || '[]';
       try {
         const parsed = JSON.parse(txt);
-        if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
-        if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+        if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+        if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
       } catch (e) {
         const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
-        return found.map(normalizeUrl);
+        return found.map(normalizeUrl).filter(u => IMG_EXT_RE.test(u));
       }
     } catch (e) {
       console.error('image-fixer: extractFromScriptPayload error', e);
@@ -266,23 +377,52 @@
     return [];
   }
 
-  function extractFromDOM(card) {
-    const found = new Set();
-    // existing images
-    Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
-    // links
+  /* NEW: extract videos & socials from the media payload script (if present) or fallback to scanning */
+  function extractMediaFromScriptPayload(card) {
+    const script = card.querySelector('script[type="application/json"][data-report-media-for]');
+    if (!script) return { videos: [], socials: [] };
+    try {
+      const obj = JSON.parse(script.textContent || '{}');
+      const videos = [];
+      if (obj.video_url) videos.push(normalizeUrl(obj.video_url));
+      if (obj.video_urls && Array.isArray(obj.video_urls)) videos.push(...obj.video_urls.map(normalizeUrl));
+      if (obj.videos && Array.isArray(obj.videos)) videos.push(...obj.videos.map(normalizeUrl));
+      if (typeof obj.video_urls === 'string') videos.push(...obj.video_urls.split(/[\r\n,]+/).map(normalizeUrl));
+      const socials = [];
+      ['twitter_url','instagram_url','facebook_url','tiktok_url','youtube_url'].forEach(k => {
+        if (obj[k]) socials.push(normalizeUrl(obj[k]));
+      });
+      if (obj.other_socials && Array.isArray(obj.other_socials)) obj.other_socials.forEach(u => { if (u) socials.push(normalizeUrl(u)); });
+      if (typeof obj.other_socials === 'string') obj.other_socials.split(/[\r\n,]+/).forEach(u => { if (u) socials.push(normalizeUrl(u)); });
+      return { videos: videos.filter(Boolean), socials: socials.filter(Boolean) };
+    } catch (e) {
+      // fallback: find video tokens and http tokens
+      const txt = script.textContent || '';
+      const foundVideos = (txt.match(HTTP_VIDEO_TOKEN_RE) || []).map(normalizeUrl);
+      const httpTokens = (txt.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).map(normalizeUrl);
+      // treat non-image/video http tokens as socials
+      const socials = httpTokens.filter(t => !IMG_EXT_RE.test(t) && !VIDEO_EXT_RE.test(t));
+      return { videos: Array.from(new Set(foundVideos)), socials: Array.from(new Set(socials)) };
+    }
+  }
+
+  /* Extract possible videos and socials from anchors / text in DOM */
+  function extractFromDOMForMedia(card) {
+    const videos = new Set();
+    const socials = new Set();
     Array.from(card.querySelectorAll('a[href]')).forEach(a => {
       const href = a.getAttribute('href') || '';
-      if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
-      try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch (e) {}
+      if (VIDEO_EXT_RE.test(href)) videos.add(normalizeUrl(href));
+      else if (!IMG_EXT_RE.test(href)) socials.add(normalizeUrl(href));
     });
-    // scan text for urls
     const text = card.innerText || card.textContent || '';
-    let match;
-    while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) {
-      found.add(normalizeUrl(match[0]));
-    }
-    return Array.from(found);
+    let m;
+    while ((m = HTTP_VIDEO_TOKEN_RE.exec(text)) !== null) videos.add(normalizeUrl(m[0]));
+    (text.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).forEach(t => {
+      const n = normalizeUrl(t);
+      if (!VIDEO_EXT_RE.test(n) && !IMG_EXT_RE.test(n)) socials.add(n);
+    });
+    return { videos: Array.from(videos), socials: Array.from(socials) };
   }
 
   function ensureGallery(card) {
@@ -319,7 +459,201 @@
     return injected;
   }
 
-  /* Lightbox wiring (assumes your lightbox DOM exists) */
+  /* NEW: inject video elements / links and copy buttons */
+  function ensureVideoContainer(card) {
+    let cont = card.querySelector('.evidence-videos');
+    if (!cont) {
+      cont = document.createElement('div');
+      cont.className = 'evidence-videos';
+      const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceContainer.appendChild(cont);
+    }
+    return cont;
+  }
+
+  function injectVideos(card, urls) {
+    if (!urls || !urls.length) return [];
+    const cont = ensureVideoContainer(card);
+    const existing = new Set(Array.from(cont.querySelectorAll('a.evidence-link, video')).map(el => {
+      if (el.tagName && el.tagName.toLowerCase() === 'video') {
+        const s = el.querySelector('source');
+        return s ? s.src : (el.currentSrc || '');
+      }
+      return el.href || '';
+    }).filter(Boolean));
+    const injected = [];
+    urls.forEach(u => {
+      if (!u) return;
+      const n = normalizeUrl(u);
+      if (existing.has(n)) return;
+      try {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'video-item';
+        const vcandidate = n.split('?')[0].split('#')[0].trim();
+        const ext = (vcandidate.includes('.') ? vcandidate.split('.').pop().toLowerCase() : '');
+        if (VIDEO_EXT_RE.test(n) && ['mp4','webm','ogg','mov'].indexOf(ext) >= 0) {
+          const video = document.createElement('video');
+          video.controls = true;
+          video.preload = 'metadata';
+          video.crossOrigin = 'anonymous';
+          const source = document.createElement('source');
+          source.src = n;
+          source.type = 'video/' + (ext === 'mp4' ? 'mp4' : (ext === 'webm' ? 'webm' : 'ogg'));
+          video.appendChild(source);
+          wrapper.appendChild(video);
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
+          const open = document.createElement('a');
+          open.className = 'evidence-link';
+          open.href = n;
+          open.target = '_blank';
+          open.rel = 'noopener noreferrer';
+          open.textContent = 'Open video';
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'copy-button';
+          copyBtn.setAttribute('data-copy-url', n);
+          copyBtn.textContent = 'Copy URL';
+          actions.appendChild(open);
+          actions.appendChild(copyBtn);
+          wrapper.appendChild(actions);
+          cont.appendChild(wrapper);
+          injected.push(n);
+        } else {
+          const linkWrapper = document.createElement('div');
+          linkWrapper.className = 'video-item';
+          const open = document.createElement('a');
+          open.className = 'evidence-link';
+          open.href = n;
+          open.target = '_blank';
+          open.rel = 'noopener noreferrer';
+          open.textContent = 'Open media';
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'copy-button';
+          copyBtn.setAttribute('data-copy-url', n);
+          copyBtn.textContent = 'Copy URL';
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
+          actions.appendChild(open);
+          actions.appendChild(copyBtn);
+          linkWrapper.appendChild(actions);
+          cont.appendChild(linkWrapper);
+          injected.push(n);
+        }
+      } catch (e) {
+        console.warn('injectVideos: error for', n, e);
+      }
+    });
+    return injected;
+  }
+
+  /* copy helper */
+  async function copyToClipboard(text) {
+    if (!text) return Promise.reject(new Error('NO_TEXT'));
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function wireCopyButtons(root) {
+    root = root || document;
+    root.querySelectorAll('.copy-button[data-copy-url]').forEach(btn => {
+      if (btn.__wired) return;
+      btn.addEventListener('click', async function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const url = btn.getAttribute('data-copy-url') || '';
+        if (!url) return;
+        btn.disabled = true;
+        const prev = btn.textContent;
+        try {
+          await copyToClipboard(url);
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1400);
+        } catch (e) {
+          console.error('copy failed', e);
+          btn.textContent = 'Copy failed';
+          setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1600);
+        }
+      });
+      btn.__wired = true;
+    });
+  }
+
+  /* main gather/inject function (images + videos + socials) */
+  function gatherAndInjectAll() {
+    const cards = Array.from(document.querySelectorAll('.report-card'));
+    if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
+    cards.forEach(card => {
+      try {
+        // images injection (skip card if images already present to avoid duplicates)
+        const alreadyHasImageOrThumb = card.querySelector('.evidence-gallery') || card.querySelector('.thumb');
+        const imgsFromScript = extractImagesFromScriptPayload(card);
+        const imgsFromDom = (function(){ const found = new Set(); Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); }); Array.from(card.querySelectorAll('a[href]')).forEach(a => { const href = a.getAttribute('href')||''; if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href)); try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e){} }); const text = card.innerText || card.textContent || ''; let match; while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) { found.add(normalizeUrl(match[0])); } return Array.from(found); })();
+        const combinedImages = Array.from(new Set(Array.prototype.concat(imgsFromScript, imgsFromDom)));
+        const images = combinedImages.filter(u => IMG_EXT_RE.test(u));
+        if (!alreadyHasImageOrThumb && images.length) {
+          const injected = injectImages(card, images);
+          if (injected.length) console.info('image-fixer: injected', injected.length, 'images for', card.getAttribute('data-id') || '(no id)');
+        }
+
+        // media (videos + socials)
+        const mediaFromScript = extractMediaFromScriptPayload(card);
+        const mediaFromDom = extractFromDOMForMedia(card);
+        const allVideos = Array.from(new Set([...(mediaFromScript.videos||[]), ...(mediaFromDom.videos||[])]).values()).filter(Boolean);
+        const allSocials = Array.from(new Set([...(mediaFromScript.socials||[]), ...(mediaFromDom.socials||[])]).values()).filter(Boolean);
+
+        if (allVideos.length) {
+          const injected = injectVideos(card, allVideos);
+          if (injected.length) console.info('media-injector: injected', injected.length, 'videos for', card.getAttribute('data-id') || '(no id)');
+        }
+
+        // if client detected socials but server didn't render, append a social-links bar (non-destructive)
+        if (allSocials.length) {
+          const containerExists = card.querySelector('.social-links');
+          if (!containerExists) {
+            const socialWrap = document.createElement('div');
+            socialWrap.className = 'social-links';
+            allSocials.forEach(u => {
+              try {
+                const a = document.createElement('a');
+                a.href = u;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = (u.includes('twitter.com') || u.includes('x.com')) ? 'X/Twitter' : (u.includes('instagram.com') ? 'Instagram' : (u.includes('facebook.com') ? 'Facebook' : (u.includes('tiktok.com') ? 'TikTok' : 'Link')));
+                socialWrap.appendChild(a);
+              } catch (e){}
+            });
+            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+            evidenceContainer.appendChild(socialWrap);
+          }
+        }
+      } catch (e) {
+        console.error('image-fixer: error processing card', card, e);
+      }
+    });
+
+    // wire copy buttons after injection
+    wireCopyButtons(document);
+  }
+
+  /* Lightbox wiring — reuse your existing DOM elements for images */
   const lightbox = document.getElementById('lightbox');
   const lbImg = document.getElementById('lightbox-img');
   const lbCaption = document.getElementById('lightbox-caption');
@@ -363,47 +697,24 @@
     if (ev.key === 'ArrowRight') showNext();
   });
 
-  /* main gather/inject function */
-  function gatherAndInjectAll() {
-    const cards = Array.from(document.querySelectorAll('.report-card'));
-    if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
-    cards.forEach(card => {
-      try {
-        // skip if the card already has a gallery or injected thumbs
-        if (card.querySelector('.evidence-gallery') || card.querySelector('.thumb')) return;
-
-        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,'')) || '';
-        const fromScript = extractFromScriptPayload(card);
-        const fromDom = extractFromDOM(card);
-        const combined = Array.from(new Set(Array.prototype.concat(fromScript, fromDom)));
-        const images = combined.filter(u => IMG_EXT_RE.test(u));
-        if (!images.length) return;
-        console.info('image-fixer: found images for', id || '(no id)', images);
-        gatherAndInjectAll._injected = gatherAndInjectAll._injected || 0;
-        const injected = injectImages(card, images);
-        gatherAndInjectAll._injected += injected.length;
-        if (injected.length) console.info('image-fixer: injected', injected.length, 'images for', id || '(no id)');
-      } catch (e) {
-        console.error('image-fixer: error processing card', card, e);
-      }
-    });
-  }
-
   /* delegated click handler for thumbs / evidence-image / evidence-link */
   function delegatedClickHandler(ev) {
     const t = ev.target;
     if (!t || !t.classList) return;
     if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
 
-    // if it's an evidence link, prevent navigation and open gallery instead
+    // if it's an evidence link, try to show image gallery first
     if (t.classList.contains('evidence-link')) {
       ev.preventDefault();
       const card = t.closest('.report-card');
       if (!card) { window.open(t.href, '_blank'); return; }
 
-      const id = card.getAttribute('data-id') || '';
-      let gallery = id ? extractFromScriptPayload(card) : [];
-      if (!gallery.length) gallery = extractFromDOM(card).filter(u => IMG_EXT_RE.test(u));
+      let gallery = extractImagesFromScriptPayload(card);
+      if (!gallery.length) {
+        // fallback to searching inside card DOM
+        const domImgs = Array.from(card.querySelectorAll('img')).map(i => i.src).filter(Boolean);
+        gallery = domImgs;
+      }
       if (!gallery.length) { window.open(t.href, '_blank'); return; }
       injectImages(card, gallery);
       const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
@@ -422,8 +733,7 @@
       return;
     }
     // fallback to script payload
-    const id = card.getAttribute('data-id') || '';
-    const payload = id ? extractFromScriptPayload(card) : [];
+    const payload = extractImagesFromScriptPayload(card);
     if (payload.length) showLightbox(payload, 0);
   }
   // ensure only one delegated handler
@@ -458,7 +768,6 @@
       if (relevant) scheduleRun();
     });
     observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class', 'src'] });
-    // keep reference so it can be disconnected in devtools
     window.__image_fixer_observer = observer;
   }
 
@@ -472,7 +781,7 @@
       gatherAndInjectAll();
       if (tries > 6) clearInterval(intId);
     }, 400);
-    // start observer to catch later mutations (e.g., SPA re-render or script.js DOM replacement)
+    // start observer to catch later mutations
     startObserver();
   }
 
@@ -488,22 +797,17 @@
     schedule: scheduleRun,
     startObserver,
     normalizeUrl,
-    extractFromDOM,
-    extractFromScriptPayload
+    extractFromDOM: function(card){ return Array.isArray(card) ? [] : (function(){return [];})(); },
+    extractFromScriptPayload: function(card){ return extractImagesFromScriptPayload(card); }
   };
 
-  console.info('image-fixer: bootstrap installed');
+  console.info('image-fixer + media-injector: bootstrap installed');
 
 })();
 </script>
-
 
 <!-- Your main app script (keeps existing behavior) -->
 <script src="/static/script.js"></script>
 
 </body>
 </html>
-
-
-
-
