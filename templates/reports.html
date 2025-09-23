@@ -210,173 +210,194 @@
     <div class="lightbox-caption" id="lightbox-caption"></div>
 </div>
 
+<!-- Unified image fixer (single copy) -->
 <script>
 (function(){
-    'use strict';
-    const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
-    const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+  'use strict';
 
-    function normalizeUrl(u){ if(!u) return ''; u = (''+u).trim(); if(u.startsWith('<')&&u.endsWith('>')) u=u.slice(1,-1).trim(); if((u.startsWith('"')&&u.endsWith('"'))||(u.startsWith("'")&&u.endsWith("'"))) u=u.slice(1,-1); return u.trim(); }
+  const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
+  const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
 
-    // collect JSON payloads keyed by report id
-    const reportImages = {};
-    Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]')).forEach(s=>{
-        const rid = (s.getAttribute('data-report-images-for')||'').toString();
-        if(!rid) return;
-        try {
-            const parsed = JSON.parse(s.textContent || '[]');
-            if(Array.isArray(parsed)) reportImages[rid] = parsed.map(normalizeUrl).filter(Boolean);
-            else if(typeof parsed === 'string') reportImages[rid] = parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
-            else reportImages[rid] = [];
-        } catch(e){
-            const found = (s.textContent||'').match(HTTP_IMG_TOKEN_RE) || [];
-            reportImages[rid] = found.map(normalizeUrl);
-        }
+  function normalizeUrl(u){
+    if (!u || typeof u !== 'string') return '';
+    u = u.trim();
+    if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1,-1).trim();
+    if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1,-1).trim();
+    return u;
+  }
+
+  function parseJsonPayloadForId(id){
+    const script = document.querySelector('script[type="application/json"][data-report-images-for="'+String(id)+'"]');
+    if (!script) return [];
+    const txt = script.textContent || '';
+    try {
+      const parsed = JSON.parse(txt);
+      if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
+      if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+      return [];
+    } catch (e) {
+      const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
+      return found.map(normalizeUrl);
+    }
+  }
+
+  function extractFromDom(card){
+    const found = new Set();
+    Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+    Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
+      try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e){}
     });
+    const text = card.textContent || '';
+    const tokens = text.match(HTTP_IMG_TOKEN_RE) || [];
+    tokens.forEach(t => found.add(normalizeUrl(t)));
+    return Array.from(found);
+  }
 
-    // lightbox elements
+  function ensureGallery(card){
+    let g = card.querySelector('.evidence-gallery');
+    if (!g) {
+      g = document.createElement('div');
+      g.className = 'evidence-gallery';
+      const evidenceBlock = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceBlock.appendChild(g);
+    }
+    return g;
+  }
+
+  function injectImages(card, urls){
+    if (!urls || !urls.length) return [];
+    const gallery = ensureGallery(card);
+    const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i => i.src));
+    const injected = [];
+    urls.forEach(u => {
+      if (!u) return;
+      const n = normalizeUrl(u);
+      if (!IMG_EXT_RE.test(n)) return;
+      if (existing.has(n)) return;
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.loading = 'lazy';
+      img.alt = 'Additional evidence';
+      img.src = n;
+      img.setAttribute('data-auto-injected', '1');
+      gallery.appendChild(img);
+      injected.push(n);
+      existing.add(n);
+    });
+    return injected;
+  }
+
+  function wireDelegatedLightbox(){
     const lightbox = document.getElementById('lightbox');
-    const imgEl = document.getElementById('lightbox-img');
-    const captionEl = document.getElementById('lightbox-caption');
-    const btnPrev = document.getElementById('lb-prev');
-    const btnNext = document.getElementById('lb-next');
-    const btnClose = document.getElementById('lb-close');
-    let currentGallery = [], currentIndex = 0;
+    const lightboxImg = document.getElementById('lightbox-img');
+    const caption = document.getElementById('lightbox-caption');
+    if (!lightbox || !lightboxImg) return;
 
-    function showLightbox(gallery, idx){
-        if(!gallery || !gallery.length) return;
-        currentGallery = gallery.slice();
-        currentIndex = Math.max(0, Math.min(idx||0, currentGallery.length-1));
-        imgEl.src = currentGallery[currentIndex];
-        imgEl.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length;
-        captionEl.textContent = imgEl.alt;
-        if(currentGallery.length > 1){ btnPrev.style.display='flex'; btnNext.style.display='flex'; } else { btnPrev.style.display='none'; btnNext.style.display='none'; }
-        lightbox.classList.add('visible'); lightbox.setAttribute('aria-hidden','false');
+    let currentGallery = [];
+    let currentIndex = 0;
+    function openGallery(g, idx){
+      currentGallery = g.slice();
+      currentIndex = Math.max(0, Math.min(idx || 0, currentGallery.length - 1));
+      lightboxImg.src = currentGallery[currentIndex];
+      lightboxImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+      caption.textContent = lightboxImg.alt || '';
+      lightbox.classList.add('visible');
+      lightbox.setAttribute('aria-hidden','false');
+      // show arrows if multiple
+      const prevBtn = document.querySelector('.lightbox-arrow.left');
+      const nextBtn = document.querySelector('.lightbox-arrow.right');
+      if (prevBtn && nextBtn) {
+        if (currentGallery.length > 1) { prevBtn.style.display = 'flex'; nextBtn.style.display = 'flex'; } else { prevBtn.style.display='none'; nextBtn.style.display='none'; }
+      }
     }
-    function hideLightbox(){ lightbox.classList.remove('visible'); lightbox.setAttribute('aria-hidden','true'); imgEl.src=''; currentGallery=[]; currentIndex=0; btnPrev.style.display='none'; btnNext.style.display='none'; }
-    function showPrev(){ if(currentGallery.length<=1) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; imgEl.src=currentGallery[currentIndex]; captionEl.textContent='Image '+(currentIndex+1)+' of '+currentGallery.length; }
-    function showNext(){ if(currentGallery.length<=1) return; currentIndex=(currentIndex+1)%currentGallery.length; imgEl.src=currentGallery[currentIndex]; captionEl.textContent='Image '+(currentIndex+1)+' of '+currentGallery.length; }
-
-    function extractFromDOM(card){
-        const s = new Set();
-        Array.from(card.querySelectorAll('img')).forEach(i=>{ if(i.src) s.add(normalizeUrl(i.src)); });
-        Array.from(card.querySelectorAll('a')).forEach(a=>{ const h=a.getAttribute('href')||''; if(IMG_EXT_RE.test(h)) s.add(normalizeUrl(h)); });
-        const text = card.innerText || card.textContent || '';
-        let m;
-        while((m=HTTP_IMG_TOKEN_RE.exec(text))!==null) s.add(normalizeUrl(m[0]));
-        return Array.from(s);
+    function closeLightbox(){
+      lightbox.classList.remove('visible');
+      lightbox.setAttribute('aria-hidden','true');
+      lightboxImg.src = '';
+      currentGallery = [];
+      currentIndex = 0;
     }
+    function prev(){ if (currentGallery.length <= 1) return; currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length; lightboxImg.src = currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+    function next(){ if (currentGallery.length <= 1) return; currentIndex = (currentIndex + 1) % currentGallery.length; lightboxImg.src = currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
 
-    function buildGallery(card, urls){
-        if(!urls||!urls.length) return [];
-        let gallery = card.querySelector('.evidence-gallery');
-        let created=false;
-        if(!gallery){ gallery=document.createElement('div'); gallery.className='evidence-gallery'; created=true; }
-        const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i=>normalizeUrl(i.src)));
-        const injected = [];
-        urls.forEach(u=>{
-            if(!u) return;
-            if(!IMG_EXT_RE.test(u)) return;
-            if(existing.has(u)) return;
-            const img = document.createElement('img');
-            img.src=u; img.alt='Additional evidence'; img.loading='lazy'; img.className='thumb'; img.setAttribute('data-auto-injected','1');
-            gallery.appendChild(img);
-            injected.push(u); existing.add(u);
-        });
-        if(created){ const evidenceContainer = card.querySelector('.report-evidence')||card.querySelector('.report-card-body')||card; evidenceContainer.appendChild(gallery); }
-        return injected;
-    }
+    const prevBtn = document.querySelector('.lightbox-arrow.left');
+    const nextBtn = document.querySelector('.lightbox-arrow.right');
+    const closeBtn = document.querySelectorAll('.lightbox-close')[0];
 
-    function gatherAndInjectAll(){
-        const cards = Array.from(document.querySelectorAll('.report-card'));
-        console.info('reports-fixer: processing', cards.length, 'cards');
-        cards.forEach(card=>{
-            try {
-                // prefer explicit data-id (set by template)
-                let rid = (card.getAttribute('data-id') || '').toString();
-                // fallback: any header id starting with r- or p-
-                if(!rid){
-                    const header = card.querySelector('[id^="r-"],[id^="p-"]');
-                    if(header && header.id){ rid = header.id.replace(/^r-|^p-/,''); }
-                }
-                if(!rid) rid = 'unknown';
-                const payload = (reportImages[rid]||[]).map(normalizeUrl).filter(Boolean);
-                const domFound = extractFromDOM(card);
-                // combine with payload first
-                const combined = Array.from(new Set(payload.concat(domFound)));
-                const images = combined.filter(u=>IMG_EXT_RE.test(u));
-                console.debug('reports-fixer:', rid, 'payload=', payload.length, 'dom=', domFound.length, 'images=', images.length);
-                if(!images.length) return;
-                const injected = buildGallery(card, images);
-                if(injected.length) console.info('reports-fixer:', rid, 'injected', injected.length, 'images');
-            } catch(e){
-                console.error('reports-fixer: card error', e);
-            }
-        });
-    }
+    if (prevBtn) { try { prevBtn.removeEventListener('click', prev); } catch(e){} prevBtn.addEventListener('click', prev); }
+    if (nextBtn) { try { nextBtn.removeEventListener('click', next); } catch(e){} nextBtn.addEventListener('click', next); }
+    if (closeBtn) { try { closeBtn.removeEventListener('click', closeLightbox); } catch(e){} closeBtn.addEventListener('click', closeLightbox); }
+    lightbox.addEventListener('click', function(ev){ if (ev.target === lightbox) closeLightbox(); });
 
-    function wireThumbnailClicks(){
-        document.querySelectorAll('.report-card').forEach(card=>{
-            card.addEventListener('click', ev=>{
-                const t = ev.target;
-                if(!(t && t.classList)) return;
-                if(!(t.classList.contains('thumb') || t.classList.contains('evidence-image'))) return;
-                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i=>normalizeUrl(i.src)).filter(Boolean);
-                const rid = card.getAttribute('data-id') || ((card.querySelector('[id^="r-"],[id^="p-"]')||{}).id||'').replace(/^r-|^p-/,'');
-                const fallback = reportImages[rid] || [];
-                const gallery = imgs.length? imgs : fallback;
-                if(!gallery.length) return;
-                const clicked = normalizeUrl(t.src || t.getAttribute('src')||'');
-                let idx = gallery.indexOf(clicked); if(idx===-1) idx=0;
-                showLightbox(gallery, idx);
-            });
-        });
-    }
+    // delegated click handler
+    try { document.removeEventListener('click', document.__evidenceClickHandler); } catch(e){}
+    document.__evidenceClickHandler = function(ev){
+      const t = ev.target;
+      if (!t || !t.classList) return;
+      if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image'))) return;
+      const card = t.closest('.report-card');
+      if (!card) return;
+      const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+      let gallery = imgs.length ? imgs : (function(){
+        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,''));
+        return parseJsonPayloadForId(id);
+      })();
+      if (!gallery || !gallery.length) return;
+      const clicked = t.src || t.getAttribute('src') || '';
+      let idx = gallery.indexOf(clicked);
+      if (idx === -1) idx = 0;
+      openGallery(gallery, idx);
+    };
+    document.addEventListener('click', document.__evidenceClickHandler);
 
-    // wire lightbox controls
-    if(btnPrev) btnPrev.addEventListener('click', showPrev);
-    if(btnNext) btnNext.addEventListener('click', showNext);
-    if(btnClose) btnClose.addEventListener('click', hideLightbox);
-    lightbox.addEventListener('click', e=>{ if(e.target===lightbox || e.target===captionEl) hideLightbox(); });
-    document.addEventListener('keydown', e=>{ if(!lightbox.classList.contains('visible')) return; if(e.key==='Escape') hideLightbox(); if(e.key==='ArrowLeft') showPrev(); if(e.key==='ArrowRight') showNext(); });
+    // keyboard nav
+    try { document.removeEventListener('keydown', document.__evidenceKeyHandler); } catch(e){}
+    document.__evidenceKeyHandler = function(ev){
+      if (!lightbox.classList.contains('visible')) return;
+      if (ev.key === 'Escape') closeLightbox();
+      if (ev.key === 'ArrowLeft') prev();
+      if (ev.key === 'ArrowRight') next();
+    };
+    document.addEventListener('keydown', document.__evidenceKeyHandler);
+  }
 
-    document.addEventListener('DOMContentLoaded', ()=>{
-        try {
-            gatherAndInjectAll();
-            wireThumbnailClicks();
-            window.__reports_image_fixer = { run: ()=>{ gatherAndInjectAll(); wireThumbnailClicks(); } };
-            console.info('reports-fixer: initialized');
-        } catch(e){ console.error('reports-fixer init error', e); }
+  function runOnce(){
+    const cards = Array.from(document.querySelectorAll('.report-card'));
+    cards.forEach(card => {
+      if (card.querySelector('.thumb, .evidence-image')) return;
+      let id = card.getAttribute('data-id') || '';
+      if (!id) {
+        const header = card.querySelector('[id^="r-"],[id^="p-"]');
+        if (header && header.id) id = header.id.replace(/^r-|^p-/,'');
+      }
+      const payload = id ? parseJsonPayloadForId(id) : [];
+      const dom = extractFromDom(card);
+      const combined = Array.from(new Set((payload.concat(dom)).map(normalizeUrl).filter(Boolean)));
+      const images = combined.filter(u => IMG_EXT_RE.test(u));
+      if (images.length) injectImages(card, images);
     });
+    wireDelegatedLightbox();
+  }
+
+  // run after DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runOnce);
+  } else {
+    setTimeout(runOnce, 20);
+  }
+
+  // expose for backwards compatibility and debugging
+  window.__unified_image_fixer = { run: runOnce, parseJsonPayloadForId: parseJsonPayloadForId };
+  // ensure older callers still work
+  window.__reports_image_fixer = window.__reports_image_fixer || { run: runOnce };
+
 })();
 </script>
 
-<script>
-document.addEventListener('DOMContentLoaded',()=>{
-  document.querySelectorAll('script[type="application/json"][data-report-images-for]').forEach(s=>{
-    const id = s.getAttribute('data-report-images-for');
-    let arr = [];
-    try { arr = JSON.parse(s.textContent||'[]'); } catch(e) {
-      arr = (s.textContent||'').match(/\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi)||[];
-    }
-    arr = Array.isArray(arr)? arr : [];
-    if(!arr.length) return;
-    const card = document.querySelector('.report-card[data-id="'+id+'"]');
-    if(!card) return;
-    let gallery = card.querySelector('.evidence-gallery');
-    if(!gallery){ gallery = document.createElement('div'); gallery.className='evidence-gallery'; card.querySelector('.report-evidence')?.appendChild(gallery) ?? card.appendChild(gallery); }
-    arr.forEach(u=>{
-      if(!u) return;
-      if(!gallery.querySelector('img[src="'+u+'"]')){
-        const img = document.createElement('img');
-        img.className='thumb'; img.loading='lazy'; img.src = u; img.alt='Additional evidence';
-        gallery.appendChild(img);
-      }
-    });
-  });
-});
-</script>
+<!-- Your main app script (keeps existing behavior) -->
+<script src="/static/script.js"></script>
 
 </body>
 </html>
-
