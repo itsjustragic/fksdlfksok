@@ -56,44 +56,63 @@ async def ping(request: Request):
 
 @app.on_event("startup")
 async def schedule_ping_task():
-    # If you don't want the external pinger (e.g. when running locally), set DISABLE_EXTERNAL_PING=1
+    """
+    Robust startup ping loop:
+      - Optional disable via DISABLE_EXTERNAL_PING=1
+      - Primary target: PING_TARGET env var or SERVICE_URL
+      - Fallback target: LOCAL_PING_TARGET env var or http://127.0.0.1:8000
+      - Logs attempts and response bodies (truncated) to help debugging 404 reasons.
+    """
     if os.getenv("DISABLE_EXTERNAL_PING", "0") == "1":
         print("External health pings disabled via DISABLE_EXTERNAL_PING.")
         return
 
+    PING_TARGET = os.getenv("PING_TARGET", SERVICE_URL).rstrip("/")
+    LOCAL_PING_TARGET = os.getenv("LOCAL_PING_TARGET", "http://127.0.0.1:8000").rstrip("/")
+
     async def ping_loop():
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             backoff_seconds = 1
             while True:
-                try:
-                    url = f"{SERVICE_URL}/ping"
-                    resp = await client.get(url)
-                    if resp.status_code == 200:
-                        # healthy
-                        backoff_seconds = 1
-                    else:
-                        # try trailing-slash variant if 404
-                        if resp.status_code == 404 and not url.endswith("/"):
-                            url2 = url + "/"
-                            resp2 = await client.get(url2)
-                            if resp2.status_code == 200:
-                                # found it with trailing slash (weird, but ok)
-                                backoff_seconds = 1
-                            else:
-                                print(f"[PING] {url} -> {resp.status_code}; body: {resp.text[:400]!s}")
-                                backoff_seconds = min(backoff_seconds * 2, 300)
-                        else:
-                            print(f"[PING] {url} -> {resp.status_code}; body: {resp.text[:400]!s}")
-                            backoff_seconds = min(backoff_seconds * 2, 300)
-                except Exception as exc:
-                    # show the exception reason so you can diagnose DNS / TLS / connection issues
-                    print(f"[PING] external ping failed: {exc!r}")
-                    backoff_seconds = min(backoff_seconds * 2, 300)
+                # order: public target then local fallback (if different)
+                targets = [PING_TARGET]
+                if LOCAL_PING_TARGET and LOCAL_PING_TARGET not in targets:
+                    targets.append(LOCAL_PING_TARGET)
 
-                # wait a bit before the next check. on errors we back off.
+                success = False
+                attempts = []
+
+                for base in targets:
+                    url = f"{base}/ping"
+                    try:
+                        resp = await client.get(url)
+                        status = resp.status_code
+                        body_snip = (resp.text or "")[:400]
+                        attempts.append((url, status, body_snip))
+                        if status == 200:
+                            # healthy -> reset backoff and break
+                            success = True
+                            backoff_seconds = 1
+                            break
+                        else:
+                            # try next target (log after loop)
+                            continue
+                    except Exception as exc:
+                        attempts.append((url, "ERR", repr(exc)))
+                        # try next target
+                        continue
+
+                if not success:
+                    # log each attempt for debugging
+                    for u, st, body in attempts:
+                        print(f"[PING] {u} -> {st}; body: {body}")
+                    # increase backoff (cap)
+                    backoff_seconds = min(backoff_seconds * 2, 300)
+                # wait (base 120s) + backoff
                 await asyncio.sleep(120 + backoff_seconds)
 
     asyncio.create_task(ping_loop())
+
 
 
 
@@ -206,6 +225,7 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 
 
