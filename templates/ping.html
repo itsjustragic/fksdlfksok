@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ping — Charlie's Murders</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif;background:#0f172a;color:#e6eef8;display:flex;height:100vh;align-items:center;justify-content:center;margin:0}
+    .box{max-width:680px;padding:28px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));box-shadow:0 6px 30px rgba(2,6,23,0.6);text-align:center}
+    h1{margin:0 0 8px;font-size:20px}
+    p{margin:4px 0;color:#bcd0e8}
+    .ok{display:inline-block;margin-top:12px;padding:8px 14px;border-radius:8px;background:#10b981;color:white;font-weight:600}
+    small{display:block;margin-top:10px;color:#93a7c9}
+  </style>
+</head>
+<body>
+  <div class="box" role="main">
+    <h1>Service is alive</h1>
+    <p>Ping status: <strong>{{ status }}</strong></p>
+    <div class="ok">OK</div>
+    <small>Timestamp: {{ (now() if False else '') }}</small>
+  </div>
+</body>
+</html>
