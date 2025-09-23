@@ -109,7 +109,7 @@
                                         <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
                                     {% elif ext in ['mp4','webm','ogg','mov'] %}
                                         <div class="evidence-videos">
-                                            <div class="video-item">
+                                            <div class="video-item" data-src="{{ report.evidence_url|e }}">
                                                 <video controls preload="metadata" crossorigin="anonymous">
                                                     <source src="{{ report.evidence_url }}" type="video/{{ ext }}">
                                                     Your browser does not support the video tag.
@@ -261,13 +261,40 @@
                                 {% endif %}
                             {% endif %}
 
+                            {# --- Normalize & dedupe vid_list --- #}
+                            {% set _tmp_vids = [] %}
+                            {% for u in vid_list %}
+                                {% if u is string %}
+                                    {% set nu = u.strip() %}
+                                    {% if nu.startswith('<') and nu.endswith('>') %}{% set nu = nu[1:-1].strip() %}{% endif %}
+                                    {% set nu = nu.strip().strip('"').strip("'") %}
+                                    {% if nu and nu not in _tmp_vids %}{% set _tmp_vids = _tmp_vids + [nu] %}{% endif %}
+                                {% endif %}
+                            {% endfor %}
+                            {% set vid_list = _tmp_vids %}
+
+                            {# --- If evidence_url was already rendered above, remove it so we don't render it again --- #}
+                            {% if report.evidence_url %}
+                                {% set _evid = report.evidence_url %}
+                                {% if _evid is string %}
+                                    {% set _evid = _evid.strip() %}
+                                    {% if _evid.startswith('<') and _evid.endswith('>') %}{% set _evid = _evid[1:-1].strip() %}{% endif %}
+                                    {% set _evid = _evid.strip().strip('"').strip("'") %}
+                                {% endif %}
+                                {% set _tmp = [] %}
+                                {% for v in vid_list %}
+                                    {% if v != _evid %}{% set _tmp = _tmp + [v] %}{% endif %}
+                                {% endfor %}
+                                {% set vid_list = _tmp %}
+                            {% endif %}
+
                             {% if vid_list and vid_list|length > 0 %}
                                 <div class="evidence-videos" aria-label="evidence videos">
                                     {% for v in vid_list %}
                                         {% set vstr = v %}
                                         {% set vcandidate = vstr.split('?')[0].split('#')[0].rstrip('/') %}
                                         {% set vext = vcandidate.rsplit('.',1)[-1]|lower if '.' in vcandidate else '' %}
-                                        <div class="video-item">
+                                        <div class="video-item" data-src="{{ v|e }}">
                                             {% if vext in ['mp4','webm','ogg','mov'] %}
                                                 <video controls preload="metadata" crossorigin="anonymous">
                                                     <source src="{{ v }}" type="video/{{ vext }}">
@@ -848,4 +875,3 @@
 
 </body>
 </html>
-
