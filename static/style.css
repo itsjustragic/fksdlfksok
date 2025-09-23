@@ -323,7 +323,8 @@ body {
 /* card body */
 .report-card-body { flex: 1 1 auto; display:flex; flex-direction:column; gap:8px; }
 .small { font-size:0.85rem; color: var(--grid-muted); margin:0; }
-.desc { margin:0; font-size:0.95rem; color:#eee; max-height:72px; overflow:hidden; text-overflow:ellipsis; }
+/* UPDATED: allow the full description to show (no clamping) */
+.desc { margin:0; font-size:0.95rem; color:#eee; }
 
 /* evidence styling */
 .report-evidence { margin-top: 6px; display:flex; flex-direction:column; gap:8px; }
@@ -442,7 +443,7 @@ button.small { padding: 6px 8px; font-size:0.85rem; border-radius:6px; }
 .report-card-actions .deny-button {
     display: inline-block;
     width: auto;
-    min-width: 110px;
+    min-width: 0;
     padding: 8px 12px;
     box-sizing: border-box;
 }
@@ -541,8 +542,7 @@ main {
     overflow: visible !important;
 }
 
-/* Ensure body leaves room for the fixed footer (some pages don't use <main>)
-   Use a fallback value for the CSS variable in case it's not defined in some contexts. */
+/* Ensure body leaves room for the fixed footer (some pages don't use <main>) */
 body {
     padding-bottom: calc(var(--footer-height, 64px) + 16px);
 }
@@ -716,7 +716,6 @@ body {
 }
 #reports-filter-clear:hover { filter: brightness(0.95); }
 
-/* No-results message */
 #reports-no-results {
     max-width: var(--grid-max-width, 1200px);
     margin: 8px auto 0;
@@ -751,3 +750,37 @@ body {
 @media (max-height: 600px) {
     #reports-filter-panel { margin-bottom: 14px; }
 }
+
+/* ====== DESCRIPTION VISIBILITY FIX (ADDED) =====
+   Ensure the full report description is visible and not clipped.
+   This is intentionally appended and narrowly targeted to avoid
+   changing other layout rules. The `!important` usage is limited
+   to defensive override of overflow/line-clamp behaviors.
+   ======================================================== */
+
+/* Make sure description is not line-clamped or ellipsed */
+.report-card .desc,
+.desc {
+    display: block !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-height: none !important;
+    -webkit-line-clamp: unset !important;
+    -webkit-box-orient: unset !important;
+    -webkit-box-pack: normal !important;
+    word-break: break-word;
+}
+
+/* In case a parent set overflow:hidden (common clamping cause) ensure card allows expansion */
+.report-card {
+    overflow: visible !important;
+    min-height: 0;
+}
+
+/* Slight spacing tweak so very long descriptions don't visually collide with actions/footer */
+.report-card-body { gap: 10px; }
+
+/* Optional: if you still want a controlled "read more" UX later, remove the rules above and
+   reintroduce the JS + .desc.expanded approach described earlier. */
+
