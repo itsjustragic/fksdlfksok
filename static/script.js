@@ -1,3 +1,298 @@
+/* script.js
+   Full combined script — includes:
+   - image-fixer bootstrap (auto-inject thumbnails & lightbox wiring)
+   - anti-inspect / anti-devtools protection
+   - DOMContentLoaded handlers: form submit, approved_reports fetch, admin helpers
+   - addMissingThumbnails patch
+   - robust filter/search compatibility patch (with strict state matching)
+*/
+
+/* ========================= image-fixer bootstrap (inject thumbnails + lightbox) ========================= */
+(function () {
+  'use strict';
+
+  const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
+  const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+  const DEBOUNCE_MS = 120;
+
+  function normalizeUrl(u) {
+    if (!u) return '';
+    u = ('' + u).trim();
+    if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
+    if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
+    return u.trim();
+  }
+
+  // Prefer data-images attribute on the card's .report-evidence element,
+  // then fallback to the existing <script type="application/json"> payload,
+  // then fallback to scanning text for http image tokens.
+  function extractFromScriptPayload(card) {
+    try {
+      // 1) data-images attribute (preferred)
+      const evidenceEl = card.querySelector('.report-evidence');
+      if (evidenceEl && evidenceEl.dataset && evidenceEl.dataset.images) {
+        try {
+          const parsed = JSON.parse(evidenceEl.dataset.images);
+          if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
+          if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+        } catch (e) {
+          // fall through to next method
+          console.warn('image-fixer: failed to parse data-images for card', card, e);
+        }
+      }
+
+      // 2) <script type="application/json" data-report-images-for="ID">
+      const script = card.querySelector('script[type="application/json"][data-report-images-for]') || (function(){
+        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,'')) || '';
+        return id ? document.querySelector('script[type="application/json"][data-report-images-for="'+id+'"]') : null;
+      })();
+      if (!script) return [];
+      const txt = script.textContent || '[]';
+      try {
+        const parsed = JSON.parse(txt);
+        if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
+        if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+      } catch (e) {
+        const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
+        return found.map(normalizeUrl);
+      }
+    } catch (e) {
+      console.error('image-fixer: extractFromScriptPayload error', e);
+      return [];
+    }
+    return [];
+  }
+
+  function extractFromDOM(card) {
+    const found = new Set();
+    // existing images
+    Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+    // links
+    Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
+      try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch (e) {}
+    });
+    // scan text for urls
+    const text = card.innerText || card.textContent || '';
+    let match;
+    while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) {
+      found.add(normalizeUrl(match[0]));
+    }
+    return Array.from(found);
+  }
+
+  function ensureGallery(card) {
+    let g = card.querySelector('.evidence-gallery');
+    if (!g) {
+      g = document.createElement('div');
+      g.className = 'evidence-gallery';
+      const evidenceBlock = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceBlock.appendChild(g);
+    }
+    return g;
+  }
+
+  function injectImages(card, urls) {
+    if (!urls || !urls.length) return [];
+    const gallery = ensureGallery(card);
+    const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i => i.src));
+    const injected = [];
+    urls.forEach(u => {
+      if (!u) return;
+      const n = normalizeUrl(u);
+      if (!IMG_EXT_RE.test(n)) return;
+      if (existing.has(n)) return;
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.loading = 'lazy';
+      img.alt = 'Additional evidence';
+      img.src = n;
+      img.setAttribute('data-auto-injected', '1');
+      gallery.appendChild(img);
+      injected.push(n);
+      existing.add(n);
+    });
+    return injected;
+  }
+
+  /* Lightbox wiring (assumes your lightbox DOM exists) */
+  const lightbox = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightbox-img');
+  const lbCaption = document.getElementById('lightbox-caption');
+  const btnPrev = document.querySelector('.lightbox-arrow.left');
+  const btnNext = document.querySelector('.lightbox-arrow.right');
+  const btnClose = document.querySelector('.lightbox-close');
+
+  let currentGallery = [];
+  let currentIndex = 0;
+  function showLightbox(gallery, index) {
+    if (!gallery || !gallery.length) return;
+    currentGallery = gallery.slice();
+    currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbImg) lbImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+    if (lbCaption) lbCaption.textContent = lbImg.alt || '';
+    if (lightbox) { lightbox.classList.add('visible'); lightbox.setAttribute('aria-hidden', 'false'); }
+    if (btnPrev && btnNext) {
+      if (currentGallery.length > 1) { btnPrev.style.display = 'flex'; btnNext.style.display = 'flex'; } else { btnPrev.style.display='none'; btnNext.style.display='none'; }
+    }
+  }
+  function hideLightbox() {
+    if (!lightbox) return;
+    lightbox.classList.remove('visible');
+    lightbox.setAttribute('aria-hidden','true');
+    if (lbImg) lbImg.src = '';
+    currentGallery = [];
+    currentIndex = 0;
+  }
+  function showPrev() { if (!currentGallery.length) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; if (lbImg) lbImg.src=currentGallery[currentIndex]; if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+  function showNext() { if (!currentGallery.length) return; currentIndex=(currentIndex+1)%currentGallery.length; if (lbImg) lbImg.src=currentGallery[currentIndex]; if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+
+  if (btnPrev) btnPrev.addEventListener('click', showPrev);
+  if (btnNext) btnNext.addEventListener('click', showNext);
+  if (btnClose) btnClose.addEventListener('click', hideLightbox);
+  if (lightbox) lightbox.addEventListener('click', function (ev) { if (ev.target === lightbox) hideLightbox(); });
+  document.addEventListener('keydown', function (ev) {
+    if (!lightbox || !lightbox.classList.contains('visible')) return;
+    if (ev.key === 'Escape') hideLightbox();
+    if (ev.key === 'ArrowLeft') showPrev();
+    if (ev.key === 'ArrowRight') showNext();
+  });
+
+  /* main gather/inject function */
+  function gatherAndInjectAll() {
+    const cards = Array.from(document.querySelectorAll('.report-card'));
+    if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
+    cards.forEach(card => {
+      try {
+        // skip if the card already has a gallery or injected thumbs
+        if (card.querySelector('.evidence-gallery') || card.querySelector('.thumb')) return;
+
+        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,'')) || '';
+        const fromScript = extractFromScriptPayload(card);
+        const fromDom = extractFromDOM(card);
+        const combined = Array.from(new Set(Array.prototype.concat(fromScript, fromDom)));
+        const images = combined.filter(u => IMG_EXT_RE.test(u));
+        if (!images.length) return;
+        console.info('image-fixer: found images for', id || '(no id)', images);
+        gatherAndInjectAll._injected = gatherAndInjectAll._injected || 0;
+        const injected = injectImages(card, images);
+        gatherAndInjectAll._injected += injected.length;
+        if (injected.length) console.info('image-fixer: injected', injected.length, 'images for', id || '(no id)');
+      } catch (e) {
+        console.error('image-fixer: error processing card', card, e);
+      }
+    });
+  }
+
+  /* delegated click handler for thumbs / evidence-image / evidence-link */
+  function delegatedClickHandler(ev) {
+    const t = ev.target;
+    if (!t || !t.classList) return;
+    if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
+
+    // if it's an evidence link, prevent navigation and open gallery instead
+    if (t.classList.contains('evidence-link')) {
+      ev.preventDefault();
+      const card = t.closest('.report-card');
+      if (!card) { window.open(t.href, '_blank'); return; }
+
+      const id = card.getAttribute('data-id') || '';
+      let gallery = id ? extractFromScriptPayload(card) : [];
+      if (!gallery.length) gallery = extractFromDOM(card).filter(u => IMG_EXT_RE.test(u));
+      if (!gallery.length) { window.open(t.href, '_blank'); return; }
+      injectImages(card, gallery);
+      const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+      showLightbox(imgs.length ? imgs : gallery, 0);
+      return;
+    }
+
+    // thumb or evidence-image clicked
+    const card = t.closest('.report-card');
+    if (!card) return;
+    const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+    if (imgs.length) {
+      let idx = imgs.indexOf(t.src || t.getAttribute('src') || '');
+      if (idx === -1) idx = 0;
+      showLightbox(imgs, idx);
+      return;
+    }
+    // fallback to script payload
+    const id = card.getAttribute('data-id') || '';
+    const payload = id ? extractFromScriptPayload(card) : [];
+    if (payload.length) showLightbox(payload, 0);
+  }
+  // ensure only one delegated handler
+  try { document.removeEventListener('click', document.__image_fixer_click); } catch (e) {}
+  document.__image_fixer_click = delegatedClickHandler;
+  document.addEventListener('click', document.__image_fixer_click);
+
+  /* Debounced runner for MutationObserver */
+  let debounceTimer = null;
+  function scheduleRun() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { try { gatherAndInjectAll(); } catch(e){console.error(e);} }, DEBOUNCE_MS);
+  }
+
+  /* MutationObserver: watch for added/changed report cards (subtree) */
+  function startObserver() {
+    const target = document.querySelector('.reports-grid') || document.body;
+    if (!target) return;
+    const observer = new MutationObserver(mutations => {
+      let relevant = false;
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length) {
+          for (const n of m.addedNodes) {
+            if (n.nodeType === 1 && (n.matches && n.matches('.report-card') || n.querySelector && n.querySelector('.report-card'))) {
+              relevant = true; break;
+            }
+          }
+        }
+        if (m.type === 'attributes' && (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
+        if (relevant) break;
+      }
+      if (relevant) scheduleRun();
+    });
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class', 'src'] });
+    // keep reference so it can be disconnected in devtools
+    window.__image_fixer_observer = observer;
+  }
+
+  /* initial startup: try to run a few times (polling fallback) to survive race conditions */
+  function startup() {
+    gatherAndInjectAll();
+    // try a couple more times in case something re-renders shortly after load
+    let tries = 0;
+    const intId = setInterval(() => {
+      tries++;
+      gatherAndInjectAll();
+      if (tries > 6) clearInterval(intId);
+    }, 400);
+    // start observer to catch later mutations (e.g., SPA re-render or script.js DOM replacement)
+    startObserver();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startup);
+  } else {
+    setTimeout(startup, 10);
+  }
+
+  /* Expose manual hooks for debugging in console */
+  window.__image_fixer = {
+    run: gatherAndInjectAll,
+    schedule: scheduleRun,
+    startObserver,
+    normalizeUrl,
+    extractFromDOM,
+    extractFromScriptPayload
+  };
+
+  console.info('image-fixer: bootstrap installed');
+
+})();
+
 /* ==================== Anti-inspect / anti-devtools layer ==================== */
 (function initAntiInspect() {
     try {
@@ -200,7 +495,7 @@
     // End anti-inspect layer
 })();
 
-
+/* ========================= DOMContentLoaded: form handling, approved_reports fetch, admin helpers ========================= */
 document.addEventListener('DOMContentLoaded', () => {
     // Report form submit
     const reportForm = document.getElementById('report-form');
@@ -909,16 +1204,18 @@ window.denyReport = async (reportId) => {
             if (!existingAbbr && parsed && parsed.abbr) existingAbbr = parsed.abbr;
             if (!existingFull && parsed && parsed.name) existingFull = parsed.name;
 
+            // ensure state abbr is normalized to uppercase and state-full normalized
+            if (existingAbbr) card.setAttribute('data-state', (existingAbbr || '').toString().trim().toUpperCase());
+            else if (!card.hasAttribute('data-state')) card.setAttribute('data-state', '');
+            if (existingFull) card.setAttribute('data-state-full', (existingFull || '').toString().trim());
+            else if (!card.hasAttribute('data-state-full')) card.setAttribute('data-state-full', '');
+            // the rest of the attributes:
             if (fullName) card.setAttribute('data-fullname', fullName);
             if (location) card.setAttribute('data-location', location);
             if (occupation) card.setAttribute('data-occupation', occupation);
             if (employer) card.setAttribute('data-employer', employer);
             if (platform) card.setAttribute('data-platform', platform);
             if (description) card.setAttribute('data-description', description);
-            if (existingAbbr) card.setAttribute('data-state', existingAbbr);
-            else if (!card.hasAttribute('data-state')) card.setAttribute('data-state', '');
-            if (existingFull) card.setAttribute('data-state-full', existingFull);
-            else if (!card.hasAttribute('data-state-full')) card.setAttribute('data-state-full', '');
             card.setAttribute('data-annotated', '1');
 
             // debug: expose annotation for quick console checks
@@ -934,7 +1231,7 @@ window.denyReport = async (reportId) => {
         }
     }
 
-    // ------------------- REPLACED: normalizeSelectedState -------------------
+    // ------------------- normalizeSelectedState -------------------
     function normalizeSelectedState(value) {
         const raw = (value || '').toString().trim();
         if (!raw) return { abbr: '', name: '' };
@@ -973,7 +1270,7 @@ window.denyReport = async (reportId) => {
     }
     // ------------------- END normalizeSelectedState -------------------
 
-    // ------------------- REPLACED: filterReports -------------------
+    // ------------------- filterReports (STRICT matching) -------------------
     function filterReports() {
         const searchInput = document.getElementById('reports-search') || document.getElementById('reports-search-input');
         const stateSelect = document.getElementById('reports-state') || document.getElementById('reports-state-select');
@@ -981,57 +1278,40 @@ window.denyReport = async (reportId) => {
 
         const q = norm(searchInput && searchInput.value);
         const rawState = (stateSelect && (stateSelect.value || '') ) || '';
-        const normalizedRawState = ('' + rawState).trim();
-        const desired = normalizeSelectedState(normalizedRawState);
+        const desired = normalizeSelectedState(rawState);
 
         const cards = allReportCards();
         let visible = 0;
 
-        // bool: has a real state selection (abbr or name)
+        // has a real state selection (abbr or name)
         const stateSelected = Boolean(desired && (desired.abbr || desired.name));
 
         cards.forEach(card => {
             annotateCard(card); // ensure card has data-* attributes
             let show = true;
 
-            // When a state is selected, **start hidden** and only unhide exact matches.
+            // Strict state matching: when a state is selected, start hidden and ONLY unhide exact matches.
             if (stateSelected) {
                 show = false;
-
                 const csAbbr = (card.getAttribute('data-state') || '').toString().trim().toUpperCase();
                 const csFull = (card.getAttribute('data-state-full') || '').toString().trim().toLowerCase();
-                const loc = (card.getAttribute('data-location') || '').toString().trim().toLowerCase();
 
-                // 1) exact abbr match
                 if (desired.abbr && csAbbr && csAbbr === desired.abbr) {
                     show = true;
-                }
-                // 2) exact full-name match
-                else if (desired.name && csFull && csFull === desired.name.toLowerCase()) {
+                } else if (desired.name && csFull && csFull === desired.name.toLowerCase()) {
                     show = true;
                 }
-                // 3) fallback: location contains full name (defensive)
-                else if (desired.name && loc && loc.indexOf(desired.name.toLowerCase()) !== -1) {
-                    show = true;
-                }
-                // 4) additional defensive check: sometimes data-state is blank but data-location contains "AK" token
-                else if (desired.abbr) {
-                    const tokenRe = new RegExp('\\b' + desired.abbr + '\\b', 'i');
-                    if (tokenRe.test(card.getAttribute('data-location') || '')) {
-                        show = true;
-                    }
-                }
+                // NO fuzzy fallbacks (no token regex checks or 'location contains' checks).
             }
 
-            // Free-text search still applies (AND with state selection)
+            // Free-text search (AND with state selection)
             if (q) {
                 const fields = [
                     card.getAttribute('data-fullname') || '',
                     card.getAttribute('data-employer') || '',
                     card.getAttribute('data-location') || '',
                     card.getAttribute('data-description') || '',
-                    card.getAttribute('data-platform') || '',
-                    card.textContent || ''
+                    card.getAttribute('data-platform') || ''
                 ].map(norm).join(' ');
                 if (!fields.includes(q)) show = false;
             }
