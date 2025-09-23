@@ -137,9 +137,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     reportsList.appendChild(card);
                 });
+
+                // *** important: trigger the reports image fixer if it exists (for dynamic insertion) ***
+                if (window.__reports_image_fixer && typeof window.__reports_image_fixer.run === 'function') {
+                    try {
+                        window.__reports_image_fixer.run();
+                        console.info('script.js: triggered window.__reports_image_fixer after approved_reports fetch');
+                    } catch (err) {
+                        console.warn('script.js: error running reports fixer after fetch', err);
+                    }
+                } else {
+                    // try again shortly (in case fixer hasn't registered yet)
+                    setTimeout(() => {
+                        if (window.__reports_image_fixer && typeof window.__reports_image_fixer.run === 'function') {
+                            try { window.__reports_image_fixer.run(); console.info('script.js: delayed trigger of reports fixer'); } catch(e){ console.warn('script.js: delayed fixer error', e); }
+                        }
+                    }, 200);
+                }
             })
             .catch(err => console.error('Error loading reports:', err));
     }
+
+    // Trigger the reports-fixer on DOM ready (for server-rendered reports.html)
+    (function triggerReportsFixerWithRetry(retries = 6) {
+        function tryRun() {
+            if (window.__reports_image_fixer && typeof window.__reports_image_fixer.run === 'function') {
+                try {
+                    window.__reports_image_fixer.run();
+                    console.info('script.js: triggered window.__reports_image_fixer on DOMContentLoaded');
+                    return;
+                } catch (err) {
+                    console.warn('script.js: reports fixer threw', err);
+                }
+            }
+            if (retries > 0) {
+                retries--;
+                setTimeout(tryRun, 150);
+            } else {
+                console.info('script.js: reports fixer not present after retries (okay if page does not include it)');
+            }
+        }
+        // small initial delay so page scripts have a chance to register globals
+        setTimeout(tryRun, 120);
+    })();
 });
 
 // small helper functions for approved reports rendering
