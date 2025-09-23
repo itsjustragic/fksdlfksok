@@ -11,7 +11,8 @@ import uuid
 import uvicorn
 import httpx
 import asyncio
-# add at top with other imports
+import os
+import urllib.parse
 import re
 
 app = FastAPI()
@@ -35,24 +36,47 @@ approved_reports: List[Dict] = []
 
 SERVICE_URL = "https://charliesmurders.onrender.com"
 
+
 @app.on_event("startup")
 async def schedule_ping_task():
+    # If you don't want the external pinger (e.g. when running locally), set DISABLE_EXTERNAL_PING=1
+    if os.getenv("DISABLE_EXTERNAL_PING", "0") == "1":
+        print("External health pings disabled via DISABLE_EXTERNAL_PING.")
+        return
+
     async def ping_loop():
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            backoff_seconds = 1
             while True:
                 try:
-                    resp = await client.get(f"{SERVICE_URL}/ping")
-                    if resp.status_code != 200:
-                        print(f"Health ping returned {resp.status_code}")
-                except Exception as e:
-                    print(f"External ping failed: {e!r}")
-                await asyncio.sleep(120)
+                    url = f"{SERVICE_URL}/ping"
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        # healthy
+                        backoff_seconds = 1
+                    else:
+                        # try trailing-slash variant if 404
+                        if resp.status_code == 404 and not url.endswith("/"):
+                            url2 = url + "/"
+                            resp2 = await client.get(url2)
+                            if resp2.status_code == 200:
+                                # found it with trailing slash (weird, but ok)
+                                backoff_seconds = 1
+                            else:
+                                print(f"[PING] {url} -> {resp.status_code}; body: {resp.text[:400]!s}")
+                                backoff_seconds = min(backoff_seconds * 2, 300)
+                        else:
+                            print(f"[PING] {url} -> {resp.status_code}; body: {resp.text[:400]!s}")
+                            backoff_seconds = min(backoff_seconds * 2, 300)
+                except Exception as exc:
+                    # show the exception reason so you can diagnose DNS / TLS / connection issues
+                    print(f"[PING] external ping failed: {exc!r}")
+                    backoff_seconds = min(backoff_seconds * 2, 300)
+
+                # wait a bit before the next check. on errors we back off.
+                await asyncio.sleep(120 + backoff_seconds)
+
     asyncio.create_task(ping_loop())
-
-@app.get("/ping")
-async def ping():
-    return {"status": "alive"}
-
 @app.post("/submit_report")
 def submit_report(report: Dict = Body(...)):
     report['id'] = str(uuid.uuid4())
@@ -162,3 +186,4 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
