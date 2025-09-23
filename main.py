@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Body, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from typing import List, Dict
 import uuid
@@ -12,8 +12,10 @@ import uvicorn
 import httpx
 import asyncio
 import os
-import urllib.parse
 import re
+import time
+import random
+from urllib.parse import urlencode
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -28,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# session secret is preserved from your original; rotate if needed
 app.add_middleware(SessionMiddleware, secret_key="bb6a6c4ceefb5db3d44e67f2b0b456e3e3cd50c2c48686ddc8464ff279f6c3fe")
 
 # In-memory storage
@@ -39,40 +42,58 @@ SERVICE_URL = "https://charliesmurders.onrender.com"
 @app.get("/ping")
 async def ping(request: Request):
     """
-    Health endpoint used by the internal ping loop and by external checks.
-    - Returns JSON `{"status":"alive"}` for API clients (curl, httpx, etc).
-    - If a browser requests (Accept includes text/html), render templates/ping.html for a human-friendly page.
+    Health endpoint:
+    - If browser (Accept includes text/html) -> render tiny template if available.
+    - Otherwise -> return machine JSON.
     """
     accept = request.headers.get("accept", "")
-    # If browser likely requested HTML, render a tiny template for humans
     if "text/html" in accept:
         try:
             return templates.TemplateResponse("ping.html", {"request": request, "status": "alive"})
         except Exception:
-            # fallback to JSON if template missing or rendering fails
             return {"status": "alive"}
-    # Default: machine-readable JSON
     return {"status": "alive"}
+
+# HEAD handlers so load-balancer health checks using HEAD succeed (avoid 405)
+@app.head("/ping")
+async def head_ping():
+    return Response(status_code=200)
+
+@app.head("/")
+async def head_root():
+    return Response(status_code=200)
 
 @app.on_event("startup")
 async def schedule_ping_task():
     """
-    Robust startup ping loop:
-      - Optional disable via DISABLE_EXTERNAL_PING=1
-      - Primary target: PING_TARGET env var or SERVICE_URL
-      - Fallback target: LOCAL_PING_TARGET env var or http://127.0.0.1:8000
-      - Logs attempts and response bodies (truncated) to help debugging 404 reasons.
+    Startup ping loop that:
+      - Respects DISABLE_EXTERNAL_PING=1 to disable in env.
+      - Uses PING_TARGET (public) then LOCAL_PING_TARGET (fallback).
+      - If Render (or other host) supplies PORT, the default local target will use it.
+      - Uses httpx AsyncClient and sends realistic headers, cache-busting query params,
+        slight jitter, and backoff on failure.
     """
     if os.getenv("DISABLE_EXTERNAL_PING", "0") == "1":
         print("External health pings disabled via DISABLE_EXTERNAL_PING.")
         return
 
     PING_TARGET = os.getenv("PING_TARGET", SERVICE_URL).rstrip("/")
-    LOCAL_PING_TARGET = os.getenv("LOCAL_PING_TARGET", "http://127.0.0.1:8000").rstrip("/")
+
+    # Use the container PORT if provided by the host (e.g. Render sets $PORT).
+    container_port = os.getenv("PORT")
+    default_local = f"http://127.0.0.1:{container_port}" if container_port else "http://127.0.0.1:8000"
+    LOCAL_PING_TARGET = os.getenv("LOCAL_PING_TARGET", default_local).rstrip("/")
+
+    candidate_paths = ["/", "/ping", "/reports"]
 
     async def ping_loop():
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             backoff_seconds = 1
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36"
+            }
+
             while True:
                 # order: public target then local fallback (if different)
                 targets = [PING_TARGET]
@@ -83,37 +104,37 @@ async def schedule_ping_task():
                 attempts = []
 
                 for base in targets:
-                    url = f"{base}/ping"
+                    # pick a plausible "page" and add a small cache-buster
+                    path = random.choice(candidate_paths)
+                    qs = urlencode({"_ts": int(time.time()), "r": random.randint(1, 999999)})
+                    url = f"{base.rstrip('/')}{path}?{qs}"
                     try:
-                        resp = await client.get(url)
+                        # use GET with HTML headers to mimic a real browser page view
+                        resp = await client.get(url, headers=headers)
                         status = resp.status_code
                         body_snip = (resp.text or "")[:400]
                         attempts.append((url, status, body_snip))
                         if status == 200:
-                            # healthy -> reset backoff and break
                             success = True
                             backoff_seconds = 1
                             break
                         else:
-                            # try next target (log after loop)
                             continue
                     except Exception as exc:
                         attempts.append((url, "ERR", repr(exc)))
-                        # try next target
                         continue
 
                 if not success:
-                    # log each attempt for debugging
+                    # log attempts for debugging
                     for u, st, body in attempts:
                         print(f"[PING] {u} -> {st}; body: {body}")
-                    # increase backoff (cap)
                     backoff_seconds = min(backoff_seconds * 2, 300)
-                # wait (base 120s) + backoff
-                await asyncio.sleep(120 + backoff_seconds)
+
+                # base delay + backoff + small jitter to avoid perfectly regular pattern
+                jitter = random.uniform(0, 15)
+                await asyncio.sleep(120 + backoff_seconds + jitter)
 
     asyncio.create_task(ping_loop())
-
-
 
 
 @app.post("/submit_report")
@@ -124,7 +145,6 @@ def submit_report(report: Dict = Body(...)):
 
 
 # ----------------------------
-# replace the approve handler with this version
 @app.post("/approve/{report_id}")
 def approve(request: Request, report_id: str):
     if not request.session.get("admin"):
@@ -136,24 +156,16 @@ def approve(request: Request, report_id: str):
 
             # -------------------------
             # SANITIZE BEFORE PUBLISHING
-            # remove any internal keys that indicate how the report was submitted
             for key in ("submitted_via", "source", "submit_method", "origin", "submitted_from"):
                 approved.pop(key, None)
 
-            # If description contains a submit-note like "Report submitted via ...",
-            # strip that piece out so the public description doesn't include it.
             if approved.get("description"):
-                # remove phrases like "Report submitted via Discord bot from text file."
                 approved["description"] = re.sub(
                     r"\s*Report submitted via[^\n\r]*", "", approved["description"], flags=re.I
                 ).strip()
-
-                # If description became empty, give a neutral fallback (optional)
                 if not approved["description"]:
                     approved["description"] = "No description provided."
 
-            # also sanitize any "socials" metadata keys you don't want public (optional)
-            # e.g. keep socials but remove private submitter emails if present
             if isinstance(approved.get("email"), str) and approved.get("email").lower().startswith("submitter:"):
                 approved.pop("email", None)
 
@@ -224,8 +236,5 @@ def admin_pending(request: Request):
     return templates.TemplateResponse("pending.html", {"request": request, "reports": pending_reports})
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
-
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
