@@ -256,539 +256,520 @@
 </div>
 
 <script>
-/* Full client-side fixer + gallery injector + video injection + copy helpers.
-   Purpose: show the image/video URLs you submitted even if server-side parsing missed them,
-   provide copy-URL buttons for direct video links, and surface social links when present.
-*/
 (function () {
-    'use strict';
-
-    const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
-    const VIDEO_EXT_RE = /\.(mp4|webm|ogg|mov|m3u8|ts)(?:[?#].*)?$/i;
-    const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
-    const HTTP_VIDEO_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:mp4|webm|ogg|mov|m3u8|ts)(?:[?#][^\s'"]*)?/gi;
-
-    function normalizeUrl(u) {
-        if (!u) return '';
-        u = ('' + u).trim();
-        if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
-        if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
-        return u.trim();
-    }
-
-    /* IMAGE EXTRACTION (unchanged, but local) */
-    function extractImagesFromScriptPayload(card) {
-        const script = card.querySelector('script[type="application/json"][data-report-images-for]');
-        if (!script) return [];
-        try {
-            const raw = script.textContent || '[]';
-            const arr = JSON.parse(raw);
-            if (Array.isArray(arr)) return arr.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
-            if (typeof arr === 'string') return arr.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
-            return [];
-        } catch (e) {
-            const txt = script.textContent || '';
-            const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
-            return found.map(normalizeUrl).filter(u => IMG_EXT_RE.test(u));
-        }
-    }
-
-    /* NEW: MEDIA (video + social) extraction from script payload */
-    function extractMediaFromScriptPayload(card) {
-        const script = card.querySelector('script[type="application/json"][data-report-media-for]');
-        if (!script) return { videos: [], socials: [] };
-        try {
-            const raw = script.textContent || '{}';
-            const obj = JSON.parse(raw);
-            const videos = [];
-            // normalize various possible shapes
-            if (obj.video_url) videos.push(normalizeUrl(obj.video_url));
-            if (obj.video_urls && Array.isArray(obj.video_urls)) videos.push(...obj.video_urls.map(normalizeUrl));
-            if (obj.videos && Array.isArray(obj.videos)) videos.push(...obj.videos.map(normalizeUrl));
-            if (typeof obj.video_urls === 'string') videos.push(...obj.video_urls.split(/\r?\n|,/).map(normalizeUrl));
-            const socials = [];
-            ['twitter_url','instagram_url','facebook_url','tiktok_url','youtube_url'].forEach(k => {
-                if (obj[k]) socials.push({ key: k, url: normalizeUrl(obj[k]) });
-            });
-            if (obj.other_socials && Array.isArray(obj.other_socials)) obj.other_socials.forEach(u => { if (u) socials.push({ key: 'other', url: normalizeUrl(u) }); });
-            if (typeof obj.other_socials === 'string') obj.other_socials.split(/\r?\n/).forEach(u => { if (u) socials.push({ key: 'other', url: normalizeUrl(u) }); });
-            return { videos: videos.filter(Boolean), socials };
-        } catch (e) {
-            const txt = script.textContent || '';
-            const foundVideos = txt.match(HTTP_VIDEO_TOKEN_RE) || [];
-            const foundImgs = txt.match(HTTP_IMG_TOKEN_RE) || [];
-            const socialCandidates = [];
-            // basic heuristic: any remaining http(s) tokens that aren't image/video treat as social links
-            const httpTokens = (txt.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).map(normalizeUrl);
-            httpTokens.forEach(t => {
-                if (VIDEO_EXT_RE.test(t)) foundVideos.push(t);
-                else if (!IMG_EXT_RE.test(t)) socialCandidates.push({ key: 'other', url: t });
-            });
-            return { videos: Array.from(new Set(foundVideos.map(normalizeUrl))).filter(Boolean), socials: socialCandidates };
-        }
-    }
-
-    function extractFromDOMForMedia(card) {
-        const videos = new Set();
-        const socials = new Set();
-        // scan anchors for video ext or known hosts
-        Array.from(card.querySelectorAll('a[href]')).forEach(a => {
-            const href = a.getAttribute('href') || '';
-            if (VIDEO_EXT_RE.test(href)) videos.add(normalizeUrl(href));
-            else if (!IMG_EXT_RE.test(href)) socials.add(normalizeUrl(href));
-        });
-        // scan text for video tokens
-        const text = card.innerText || card.textContent || '';
-        let m;
-        while ((m = HTTP_VIDEO_TOKEN_RE.exec(text)) !== null) videos.add(normalizeUrl(m[0]));
-        // also collect http tokens as socials (fallback)
-        (text.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).forEach(t => {
-            const n = normalizeUrl(t);
-            if (!VIDEO_EXT_RE.test(n) && !IMG_EXT_RE.test(n)) socials.add(n);
-        });
-        return { videos: Array.from(videos), socials: Array.from(socials).map(u => ({key:'other', url:u})) };
-    }
-
-    function buildGallery(card, urls) {
-        if (!urls || !urls.length) return [];
-        let gallery = card.querySelector('.evidence-gallery');
-        let created = false;
-        if (!gallery) {
-            gallery = document.createElement('div');
-            gallery.className = 'evidence-gallery';
-            created = true;
-        }
-        const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i => i.src));
-        const injected = [];
-        urls.forEach(u => {
-            if (!u) return;
-            if (existing.has(u)) return;
-            try {
-                const img = document.createElement('img');
-                img.src = u;
-                img.alt = 'Additional evidence';
-                img.loading = 'lazy';
-                img.className = 'thumb';
-                img.setAttribute('data-auto-injected', '1');
-                gallery.appendChild(img);
-                injected.push(u);
-                existing.add(u);
-            } catch (e) {
-                console.warn('image-fixer: failed to create img for', u, e);
-            }
-        });
-        if (created) {
-            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
-            evidenceContainer.appendChild(gallery);
-        }
-        return injected;
-    }
-
-    /* NEW: inject video elements / links and copy buttons */
-    function ensureVideoContainer(card) {
-        let cont = card.querySelector('.evidence-videos');
-        if (!cont) {
-            cont = document.createElement('div');
-            cont.className = 'evidence-videos';
-            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
-            evidenceContainer.appendChild(cont);
-        }
-        return cont;
-    }
-
-    function injectVideos(card, urls) {
-        if (!urls || !urls.length) return [];
-        const cont = ensureVideoContainer(card);
-        const existing = new Set(Array.from(cont.querySelectorAll('a.evidence-link, video')).map(el => el.tagName.toLowerCase() === 'video' ? (el.querySelector('source') ? el.querySelector('source').src : el.currentSrc) : el.href));
-        const injected = [];
-        urls.forEach(u => {
-            if (!u) return;
-            const n = normalizeUrl(u);
-            if (existing.has(n)) return;
-            try {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'video-item';
-                const vcandidate = n.split('?')[0].split('#')[0].trim();
-                const ext = (vcandidate.includes('.') ? vcandidate.split('.').pop().toLowerCase() : '');
-                if (VIDEO_EXT_RE.test(n) && ['mp4','webm','ogg','mov'].indexOf(ext) >= 0) {
-                    const video = document.createElement('video');
-                    video.controls = true;
-                    video.preload = 'metadata';
-                    video.crossOrigin = 'anonymous';
-                    const source = document.createElement('source');
-                    source.src = n;
-                    source.type = 'video/' + (ext === 'mp4' ? 'mp4' : (ext === 'webm' ? 'webm' : 'ogg'));
-                    video.appendChild(source);
-                    wrapper.appendChild(video);
-                    const actions = document.createElement('div');
-                    actions.className = 'video-actions';
-                    const open = document.createElement('a');
-                    open.className = 'evidence-link';
-                    open.href = n;
-                    open.target = '_blank';
-                    open.rel = 'noopener noreferrer';
-                    open.textContent = 'Open video';
-                    const copyBtn = document.createElement('button');
-                    copyBtn.type = 'button';
-                    copyBtn.className = 'copy-button';
-                    copyBtn.setAttribute('data-copy-url', n);
-                    copyBtn.textContent = 'Copy URL';
-                    actions.appendChild(open);
-                    actions.appendChild(copyBtn);
-                    wrapper.appendChild(actions);
-                    cont.appendChild(wrapper);
-                    injected.push(n);
-                } else {
-                    // fallback: simple link + copy
-                    const linkWrapper = document.createElement('div');
-                    linkWrapper.className = 'video-item';
-                    const open = document.createElement('a');
-                    open.className = 'evidence-link';
-                    open.href = n;
-                    open.target = '_blank';
-                    open.rel = 'noopener noreferrer';
-                    open.textContent = 'Open media';
-                    const copyBtn = document.createElement('button');
-                    copyBtn.type = 'button';
-                    copyBtn.className = 'copy-button';
-                    copyBtn.setAttribute('data-copy-url', n);
-                    copyBtn.textContent = 'Copy URL';
-                    const actions = document.createElement('div');
-                    actions.className = 'video-actions';
-                    actions.appendChild(open);
-                    actions.appendChild(copyBtn);
-                    linkWrapper.appendChild(actions);
-                    cont.appendChild(linkWrapper);
-                    injected.push(n);
-                }
-            } catch (e) {
-                console.warn('injectVideos: error for', n, e);
-            }
-        });
-        return injected;
-    }
-
-    /* cross-browser copy helper */
-    async function copyToClipboard(text) {
-        if (!text) return Promise.reject(new Error('NO_TEXT'));
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            return navigator.clipboard.writeText(text);
-        }
-        return new Promise((resolve, reject) => {
-            try {
-                const ta = document.createElement('textarea');
-                ta.value = text;
-                ta.style.position = 'fixed';
-                ta.style.left = '-9999px';
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                resolve();
-            } catch (e) {
-                reject(e);
-            }
-        });
-    }
-
-    function wireCopyButtons(root) {
-        root = root || document;
-        root.querySelectorAll('.copy-button[data-copy-url]').forEach(btn => {
-            if (btn.__wired) return;
-            btn.addEventListener('click', async function (ev) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                const url = btn.getAttribute('data-copy-url') || '';
-                if (!url) return;
-                btn.disabled = true;
-                const prev = btn.textContent;
-                try {
-                    await copyToClipboard(url);
-                    btn.textContent = 'Copied';
-                    setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1500);
-                } catch (e) {
-                    console.error('copy failed', e);
-                    btn.textContent = 'Copy failed';
-                    setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1800);
-                }
-            });
-            btn.__wired = true;
-        });
-    }
-
-    function gatherAndInjectAll() {
-        const cards = Array.from(document.querySelectorAll('.report-card'));
-        cards.forEach(card => {
-            try {
-                // images
-                const imgsFromScript = extractImagesFromScriptPayload(card);
-                const imgsFromDom = (function(){
-                    const s = new Set();
-                    Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) s.add(normalizeUrl(img.src)); });
-                    Array.from(card.querySelectorAll('a')).forEach(a => { const href = a.getAttribute('href')||''; if (IMG_EXT_RE.test(href)) s.add(normalizeUrl(href)); });
-                    const text = card.innerText || card.textContent || '';
-                    let m;
-                    while ((m = HTTP_IMG_TOKEN_RE.exec(text)) !== null) s.add(normalizeUrl(m[0]));
-                    return Array.from(s);
-                })();
-                const imageCandidates = Array.from(new Set([...imgsFromScript, ...imgsFromDom])).filter(u => IMG_EXT_RE.test(u));
-                if (imageCandidates.length) buildGallery(card, imageCandidates);
-
-                // media (videos + socials)
-                const mediaFromScript = extractMediaFromScriptPayload(card);
-                const mediaFromDom = extractFromDOMForMedia(card);
-                const allVideos = Array.from(new Set([...(mediaFromScript.videos||[]), ...(mediaFromDom.videos||[])]).values()).filter(Boolean);
-                const allSocials = (mediaFromScript.socials||[]).concat(mediaFromDom.socials||[]).filter(Boolean);
-
-                if (allVideos.length) {
-                    const injected = injectVideos(card, allVideos);
-                    if (injected.length) console.debug('Injected videos for card', card.getAttribute('data-id'), injected);
-                }
-
-                // if there are social links detected client-side but server didn't render them, append them
-                if (allSocials.length) {
-                    const containerExists = card.querySelector('.social-links');
-                    if (!containerExists) {
-                        const socialWrap = document.createElement('div');
-                        socialWrap.className = 'social-links';
-                        allSocials.forEach(s => {
-                            try {
-                                const a = document.createElement('a');
-                                a.href = s.url;
-                                a.target = '_blank';
-                                a.rel = 'noopener noreferrer';
-                                a.textContent = (s.key && s.key.replace('_url','').replace('twitter','X/Twitter')) || 'Link';
-                                socialWrap.appendChild(a);
-                            } catch (e) {}
-                        });
-                        const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
-                        evidenceContainer.appendChild(socialWrap);
-                    }
-                }
-
-            } catch (e) {
-                console.error('gatherAndInjectAll error for card', card, e);
-            }
-        });
-
-        // wire copy buttons after injection
-        wireCopyButtons(document);
-    }
-
-    /* Lightbox wiring (reuse existing DOM) */
-    const lightbox = document.getElementById('lightbox');
-    const lbImg = document.getElementById('lightbox-img');
-    const lbCaption = document.getElementById('lightbox-caption');
-    const btnPrev = document.querySelector('.lightbox-arrow.left');
-    const btnNext = document.querySelector('.lightbox-arrow.right');
-    const btnClose = document.querySelector('.lightbox-close');
-    let currentGallery = [];
-    let currentIndex = 0;
-    function showLightbox(gallery, index) {
-        if (!gallery || !gallery.length) return;
-        currentGallery = gallery.slice();
-        currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
-        lbImg.src = currentGallery[currentIndex];
-        lbImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-        lbCaption.textContent = lbImg.alt;
-        lightbox.classList.add('visible');
-        lightbox.setAttribute('aria-hidden', 'false');
-    }
-    function hideLightbox() {
-        lightbox.classList.remove('visible');
-        lightbox.setAttribute('aria-hidden', 'true');
-        lbImg.src = '';
-        currentGallery = [];
-        currentIndex = 0;
-    }
-    function showPrev() {
-        if (!currentGallery.length) return;
-        currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
-        lbImg.src = currentGallery[currentIndex];
-        lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-    }
-    function showNext() {
-        if (!currentGallery.length) return;
-        currentIndex = (currentIndex + 1) % currentGallery.length;
-        lbImg.src = currentGallery[currentIndex];
-        lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-    }
-
-    function wireThumbnailClicks() {
-        document.querySelectorAll('.report-card').forEach(card => {
-            card.addEventListener('click', function (ev) {
-                const t = ev.target;
-                if (!t) return;
-                const isThumb = t.classList && (t.classList.contains('thumb') || t.classList.contains('evidence-image'));
-                if (!isThumb) return;
-                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
-                if (imgs.length) {
-                    const idx = imgs.indexOf(t.src || t.getAttribute('src'));
-                    showLightbox(imgs, (idx === -1 ? 0 : idx));
-                    return;
-                }
-                // fallback to script payload
-                const payloadScript = card.querySelector('script[type="application/json"][data-report-images-for]');
-                if (payloadScript) {
-                    try {
-                        const parsed = JSON.parse(payloadScript.textContent || '[]');
-                        const arr = Array.isArray(parsed) ? parsed : (typeof parsed === 'string' ? parsed.split(/[\r\n,]+/) : []);
-                        const imgs2 = arr.map(normalizeUrl).filter(u => IMG_EXT_RE.test(u));
-                        if (imgs2.length) {
-                            const idx = imgs2.indexOf(t.src || t.getAttribute('src'));
-                            showLightbox(imgs2, Math.max(0, idx));
-                        }
-                    } catch (e) {}
-                }
-            });
-        });
-    }
-
-    // initialization
-    function init() {
-        try {
-            gatherAndInjectAll();
-            wireThumbnailClicks();
-            wireCopyButtons(document);
-            console.info('image+media-fixer: initialized');
-        } catch (e) {
-            console.error('init error', e);
-        }
-    }
-
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else setTimeout(init, 10);
-
-    // expose manual hooks
-    window.__image_media_fixer = {
-        run: init,
-        gather: gatherAndInjectAll,
-        wireCopyButtons
-    };
-
-})();
-</script>
-
-<!-- Pending -> Approve state helper: populate hidden "state" input & keep data-state consistent -->
-<script>
-(function(){
   'use strict';
 
-  const STATES = [
-    {name:'Alabama', abbr:'AL'},{name:'Alaska', abbr:'AK'},{name:'Arizona', abbr:'AZ'},{name:'Arkansas', abbr:'AR'},
-    {name:'California', abbr:'CA'},{name:'Colorado', abbr:'CO'},{name:'Connecticut', abbr:'CT'},{name:'Delaware', abbr:'DE'},
-    {name:'Florida', abbr:'FL'},{name:'Georgia', abbr:'GA'},{name:'Hawaii', abbr:'HI'},{name:'Idaho', abbr:'ID'},
-    {name:'Illinois', abbr:'IL'},{name:'Indiana', abbr:'IN'},{name:'Iowa', abbr:'IA'},{name:'Kansas', abbr:'KS'},
-    {name:'Kentucky', abbr:'KY'},{name:'Louisiana', abbr:'LA'},{name:'Maine', abbr:'ME'},{name:'Maryland', abbr:'MD'},
-    {name:'Massachusetts', abbr:'MA'},{name:'Michigan', abbr:'MI'},{name:'Minnesota', abbr:'MN'},{name:'Mississippi', abbr:'MS'},
-    {name:'Missouri', abbr:'MO'},{name:'Montana', abbr:'MT'},{name:'Nebraska', abbr:'NE'},{name:'Nevada', abbr:'NV'},
-    {name:'New Hampshire', abbr:'NH'},{name:'New Jersey', abbr:'NJ'},{name:'New Mexico', abbr:'NM'},{name:'New York', abbr:'NY'},
-    {name:'North Carolina', abbr:'NC'},{name:'North Dakota', abbr:'ND'},{name:'Ohio', abbr:'OH'},{name:'Oklahoma', abbr:'OK'},
-    {name:'Oregon', abbr:'OR'},{name:'Pennsylvania', abbr:'PA'},{name:'Rhode Island', abbr:'RI'},{name:'South Carolina', abbr:'SC'},
-    {name:'South Dakota', abbr:'SD'},{name:'Tennessee', abbr:'TN'},{name:'Texas', abbr:'TX'},{name:'Utah', abbr:'UT'},
-    {name:'Vermont', abbr:'VT'},{name:'Virginia', abbr:'VA'},{name:'Washington', abbr:'WA'},{name:'West Virginia', abbr:'WV'},
-    {name:'Wisconsin', abbr:'WI'},{name:'Wyoming', abbr:'WY'}
-  ];
+  const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
+  const VIDEO_EXT_RE = /\.(mp4|webm|ogg|mov|m3u8|ts)(?:[?#].*)?$/i;
+  const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+  const HTTP_VIDEO_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:mp4|webm|ogg|mov|m3u8|ts)(?:[?#][^\s'"]*)?/gi;
+  const DEBOUNCE_MS = 120;
 
-  function parseStateFromLocation(loc) {
-    if (!loc) return null;
-    const s = ('' + loc).replace(/\s+/g, ' ').trim();
-    const lower = s.toLowerCase();
-
-    // full name match first
-    for (let st of STATES) {
-      if (lower.includes(st.name.toLowerCase())) return {abbr: st.abbr, name: st.name};
-    }
-    // then try 2-letter abbr token
-    for (let st of STATES) {
-      const re = new RegExp('\\b' + st.abbr + '\\b', 'i');
-      if (re.test(s)) return {abbr: st.abbr, name: st.name};
-    }
-    return null;
+  function normalizeUrl(u) {
+    if (!u) return '';
+    u = ('' + u).trim();
+    if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
+    if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
+    return u.trim();
   }
 
-  function populateApproveStateInputs() {
-    document.querySelectorAll('.report-card').forEach(card => {
+  // safe CSS.escape fallback
+  function cssEscape(s) {
+    if (window.CSS && CSS.escape) return CSS.escape(s);
+    return ('' + s).replace(/([^\w-])/g, '\\$1');
+  }
+
+  /* Read images from data- attribute or script payload (existing logic) */
+  function extractImagesFromScriptPayload(card) {
+    try {
+      const evidenceEl = card.querySelector('.report-evidence');
+      if (evidenceEl && evidenceEl.dataset && evidenceEl.dataset.images) {
+        try {
+          const parsed = JSON.parse(evidenceEl.dataset.images);
+          if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+          if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+        } catch (e) {
+          // fallthrough
+        }
+      }
+      const script = card.querySelector('script[type="application/json"][data-report-images-for]');
+      if (!script) return [];
+      const txt = script.textContent || '[]';
       try {
-        // if server already populated data-state, prefer that
-        let state = (card.getAttribute('data-state') || '').trim();
-        const loc = (card.getAttribute('data-location') || '').trim();
-
-        if (!state && loc) {
-          const parsed = parseStateFromLocation(loc);
-          if (parsed && parsed.abbr) state = parsed.abbr;
-        }
-
-        // set the data-state attribute so front-end filtering sees it consistently
-        if (state) card.setAttribute('data-state', state.toUpperCase());
-        else card.setAttribute('data-state', '');
-
-        // populate hidden input in the approve form for this card (if present)
-        const approveForm = card.querySelector('form.approve-form');
-        if (approveForm) {
-          const input = approveForm.querySelector('input.approve-state-input');
-          if (input) input.value = state || '';
-        }
+        const parsed = JSON.parse(txt);
+        if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+        if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
       } catch (e) {
-        console.warn('populateApproveStateInputs error', e);
+        const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
+        return found.map(normalizeUrl).filter(u => IMG_EXT_RE.test(u));
+      }
+    } catch (e) {
+      console.error('image-fixer: extractFromScriptPayload error', e);
+      return [];
+    }
+    return [];
+  }
+
+  /* Extract videos & socials from the media payload script (if present) or fallback to scanning */
+  function extractMediaFromScriptPayload(card) {
+    const script = card.querySelector('script[type="application/json"][data-report-media-for]');
+    if (!script) return { videos: [], socials: [] };
+    try {
+      const obj = JSON.parse(script.textContent || '{}');
+      const videos = [];
+      if (obj.video_url) videos.push(normalizeUrl(obj.video_url));
+      if (obj.video_urls && Array.isArray(obj.video_urls)) videos.push(...obj.video_urls.map(normalizeUrl));
+      if (obj.videos && Array.isArray(obj.videos)) videos.push(...obj.videos.map(normalizeUrl));
+      if (typeof obj.video_urls === 'string') videos.push(...obj.video_urls.split(/[\r\n,]+/).map(normalizeUrl));
+      const socials = [];
+      ['twitter_url','instagram_url','facebook_url','tiktok_url','youtube_url'].forEach(k => {
+        if (obj[k]) socials.push(normalizeUrl(obj[k]));
+      });
+      if (obj.other_socials && Array.isArray(obj.other_socials)) obj.other_socials.forEach(u => { if (u) socials.push(normalizeUrl(u)); });
+      if (typeof obj.other_socials === 'string') obj.other_socials.split(/[\r\n,]+/).forEach(u => { if (u) socials.push(normalizeUrl(u)); });
+      return { videos: videos.filter(Boolean), socials: socials.filter(Boolean) };
+    } catch (e) {
+      const txt = script.textContent || '';
+      const foundVideos = (txt.match(HTTP_VIDEO_TOKEN_RE) || []).map(normalizeUrl);
+      const httpTokens = (txt.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).map(normalizeUrl);
+      const socials = httpTokens.filter(t => !IMG_EXT_RE.test(t) && !VIDEO_EXT_RE.test(t));
+      return { videos: Array.from(new Set(foundVideos)), socials: Array.from(new Set(socials)) };
+    }
+  }
+
+  /* Extract possible videos and socials from anchors / text in DOM */
+  function extractFromDOMForMedia(card) {
+    const videos = new Set();
+    const socials = new Set();
+    Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if (VIDEO_EXT_RE.test(href)) videos.add(normalizeUrl(href));
+      else if (!IMG_EXT_RE.test(href)) socials.add(normalizeUrl(href));
+    });
+    const text = card.innerText || card.textContent || '';
+    let m;
+    while ((m = HTTP_VIDEO_TOKEN_RE.exec(text)) !== null) videos.add(normalizeUrl(m[0]));
+    (text.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).forEach(t => {
+      const n = normalizeUrl(t);
+      if (!VIDEO_EXT_RE.test(n) && !IMG_EXT_RE.test(n)) socials.add(n);
+    });
+    return { videos: Array.from(videos), socials: Array.from(socials) };
+  }
+
+  function ensureGallery(card) {
+    let g = card.querySelector('.evidence-gallery');
+    if (!g) {
+      g = document.createElement('div');
+      g.className = 'evidence-gallery';
+      const evidenceBlock = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceBlock.appendChild(g);
+    }
+    return g;
+  }
+
+  // Build gallery but avoid duplicates using data-src
+  function buildGallery(card, urls) {
+    if (!urls || !urls.length) return [];
+    const gallery = ensureGallery(card);
+    const existing = new Set(Array.from(gallery.querySelectorAll('img[data-src]')).map(i => normalizeUrl(i.getAttribute('data-src'))));
+    const injected = [];
+    urls.forEach(u => {
+      if (!u) return;
+      const n = normalizeUrl(u);
+      if (!IMG_EXT_RE.test(n)) return;
+      if (existing.has(n)) return;
+      try {
+        const img = document.createElement('img');
+        img.src = n;
+        img.alt = 'Additional evidence';
+        img.loading = 'lazy';
+        img.className = 'thumb';
+        img.setAttribute('data-auto-injected', '1');
+        img.setAttribute('data-src', n);
+        gallery.appendChild(img);
+        injected.push(n);
+        existing.add(n);
+      } catch (e) {
+        console.warn('image-fixer: failed to create img for', n, e);
+      }
+    });
+    return injected;
+  }
+
+  /* NEW: inject video elements / links and copy buttons (fixed to avoid duplicates) */
+  function ensureVideoContainer(card) {
+    let cont = card.querySelector('.evidence-videos');
+    if (!cont) {
+      cont = document.createElement('div');
+      cont.className = 'evidence-videos';
+      const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceContainer.appendChild(cont);
+    }
+    return cont;
+  }
+
+  function injectVideos(card, urls) {
+    if (!urls || !urls.length) return [];
+    const cont = ensureVideoContainer(card);
+
+    // Build set of already-present data-src (reliable even across runs)
+    const alreadyPresent = new Set();
+    Array.from(cont.querySelectorAll('.video-item[data-src]')).forEach(el => {
+      alreadyPresent.add(normalizeUrl(el.getAttribute('data-src')));
+    });
+    // Also include existing <video> <source> or links (older markup)
+    Array.from(cont.querySelectorAll('video source')).forEach(s => { if (s.src) alreadyPresent.add(normalizeUrl(s.src)); });
+    Array.from(cont.querySelectorAll('a.evidence-link')).forEach(a => { if (a.href) alreadyPresent.add(normalizeUrl(a.href)); });
+
+    const injected = [];
+    // normalize+dedupe the incoming list
+    const uniq = Array.from(new Set(urls.map(normalizeUrl).filter(Boolean)));
+
+    uniq.forEach(n => {
+      if (!n) return;
+      if (alreadyPresent.has(n)) return; // skip if already there
+      try {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'video-item';
+        wrapper.setAttribute('data-src', n); // mark the wrapper so future runs see it
+
+        const vcandidate = n.split('?')[0].split('#')[0].trim();
+        const ext = (vcandidate.includes('.') ? vcandidate.split('.').pop().toLowerCase() : '');
+        if (VIDEO_EXT_RE.test(n) && ['mp4','webm','ogg','mov'].indexOf(ext) >= 0) {
+          const video = document.createElement('video');
+          video.controls = true;
+          video.preload = 'metadata';
+          video.crossOrigin = 'anonymous';
+          const source = document.createElement('source');
+          source.src = n;
+          source.type = 'video/' + (ext === 'mp4' ? 'mp4' : (ext === 'webm' ? 'webm' : 'ogg'));
+          video.appendChild(source);
+          wrapper.appendChild(video);
+
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
+          const open = document.createElement('a');
+          open.className = 'evidence-link';
+          open.href = n;
+          open.target = '_blank';
+          open.rel = 'noopener noreferrer';
+          open.textContent = 'Open video';
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'copy-button';
+          copyBtn.setAttribute('data-copy-url', n);
+          copyBtn.textContent = 'Copy URL';
+          actions.appendChild(open);
+          actions.appendChild(copyBtn);
+          wrapper.appendChild(actions);
+
+        } else {
+          // fallback: link + copy
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
+          const open = document.createElement('a');
+          open.className = 'evidence-link';
+          open.href = n;
+          open.target = '_blank';
+          open.rel = 'noopener noreferrer';
+          open.textContent = 'Open media';
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'copy-button';
+          copyBtn.setAttribute('data-copy-url', n);
+          copyBtn.textContent = 'Copy URL';
+          actions.appendChild(open);
+          actions.appendChild(copyBtn);
+          wrapper.appendChild(actions);
+        }
+
+        cont.appendChild(wrapper);
+
+        // mark as present to prevent duplicates within same run or future runs
+        alreadyPresent.add(n);
+        injected.push(n);
+      } catch (e) {
+        console.warn('injectVideos: error for', n, e);
+      }
+    });
+
+    return injected;
+  }
+
+  /* copy helper */
+  async function copyToClipboard(text) {
+    if (!text) return Promise.reject(new Error('NO_TEXT'));
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        resolve();
+      } catch (e) {
+        reject(e);
       }
     });
   }
 
-  // Ensure the hidden input is set again just before form submit (defensive)
-  function wireApproveFormSubmitGuards() {
-    document.querySelectorAll('form.approve-form').forEach(form => {
-      // avoid adding duplicate handlers
-      if (form.__approve_guarded) return;
-      form.addEventListener('submit', function (ev) {
+  function wireCopyButtons(root) {
+    root = root || document;
+    root.querySelectorAll('.copy-button[data-copy-url]').forEach(btn => {
+      if (btn.__wired) return;
+      btn.addEventListener('click', async function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const url = btn.getAttribute('data-copy-url') || '';
+        if (!url) return;
+        btn.disabled = true;
+        const prev = btn.textContent;
         try {
-          const card = form.closest('.report-card');
-          if (!card) return;
-          let state = (card.getAttribute('data-state') || '').trim();
-          const loc = (card.getAttribute('data-location') || '').trim();
-          if (!state && loc) {
-            const parsed = parseStateFromLocation(loc);
-            if (parsed && parsed.abbr) state = parsed.abbr;
-          }
-          const input = form.querySelector('input.approve-state-input');
-          if (input) input.value = state || '';
+          await copyToClipboard(url);
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1400);
         } catch (e) {
-          console.warn('approve submit guard error', e);
+          console.error('copy failed', e);
+          btn.textContent = 'Copy failed';
+          setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1600);
         }
       });
-      form.__approve_guarded = true;
+      btn.__wired = true;
     });
   }
 
-  // run on load and when new cards appear (defensive)
-  function initPendingStateHelpers() {
-    populateApproveStateInputs();
-    wireApproveFormSubmitGuards();
+  /* main gather/inject function */
+  function gatherAndInjectAll() {
+    const cards = Array.from(document.querySelectorAll('.report-card'));
+    if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
+    cards.forEach(card => {
+      try {
+        // images
+        const imgsFromScript = extractImagesFromScriptPayload(card);
+        const imgsFromDom = (function(){
+          const found = new Set();
+          Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+          Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+            const href = a.getAttribute('href') || '';
+            if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
+            try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e) {}
+          });
+          const text = card.innerText || card.textContent || '';
+          let match;
+          while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) found.add(normalizeUrl(match[0]));
+          return Array.from(found);
+        })();
+        const combinedImages = Array.from(new Set(Array.prototype.concat(imgsFromScript, imgsFromDom)));
+        const images = combinedImages.filter(u => IMG_EXT_RE.test(u));
+        if (images.length) {
+          const injectedImages = buildGallery(card, images);
+          if (injectedImages.length) console.info('image-fixer: injected', injectedImages.length, 'images for', card.getAttribute('data-id') || '(no id)');
+        }
 
-    // observe DOM for dynamically added cards and populate them too
+        // media (videos + socials)
+        const mediaFromScript = extractMediaFromScriptPayload(card);
+        const mediaFromDom = extractFromDOMForMedia(card);
+        const allVideos = Array.from(new Set([...(mediaFromScript.videos||[]), ...(mediaFromDom.videos||[])]).values()).filter(Boolean);
+        const allSocials = Array.from(new Set([...(mediaFromScript.socials||[]), ...(mediaFromDom.socials||[])]).values()).filter(Boolean);
+
+        if (allVideos.length) {
+          const injected = injectVideos(card, allVideos);
+          if (injected.length) console.info('media-injector: injected', injected.length, 'videos for', card.getAttribute('data-id') || '(no id)');
+        }
+
+        // if client detected socials but server didn't render, append a social-links bar (non-destructive)
+        if (allSocials.length) {
+          const containerExists = card.querySelector('.social-links');
+          if (!containerExists) {
+            const socialWrap = document.createElement('div');
+            socialWrap.className = 'social-links';
+            allSocials.forEach(u => {
+              try {
+                const a = document.createElement('a');
+                a.href = u;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = (u.includes('twitter.com') || u.includes('x.com')) ? 'X/Twitter' : (u.includes('instagram.com') ? 'Instagram' : (u.includes('facebook.com') ? 'Facebook' : (u.includes('tiktok.com') ? 'TikTok' : 'Link')));
+                socialWrap.appendChild(a);
+              } catch (e){}
+            });
+            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+            evidenceContainer.appendChild(socialWrap);
+          }
+        }
+
+      } catch (e) {
+        console.error('image-fixer: error processing card', card, e);
+      }
+    });
+
+    // wire copy buttons after injection
+    wireCopyButtons(document);
+  }
+
+  /* Lightbox wiring — reuse your existing DOM elements for images */
+  const lightbox = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightbox-img');
+  const lbCaption = document.getElementById('lightbox-caption');
+  const btnPrev = document.querySelector('.lightbox-arrow.left');
+  const btnNext = document.querySelector('.lightbox-arrow.right');
+  const btnClose = document.querySelector('.lightbox-close');
+
+  let currentGallery = [];
+  let currentIndex = 0;
+
+  function showLightbox(gallery, index) {
+    if (!gallery || !gallery.length) return;
+    currentGallery = gallery.slice();
+    currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbImg) lbImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+    if (lbCaption) lbCaption.textContent = lbImg.alt || '';
+    if (lightbox) { lightbox.classList.add('visible'); lightbox.setAttribute('aria-hidden', 'false'); }
+    if (btnPrev && btnNext) {
+      if (currentGallery.length > 1) { btnPrev.style.display = 'flex'; btnNext.style.display = 'flex'; } else { btnPrev.style.display='none'; btnNext.style.display='none'; }
+    }
+  }
+  function hideLightbox() {
+    if (!lightbox) return;
+    lightbox.classList.remove('visible');
+    lightbox.setAttribute('aria-hidden','true');
+    if (lbImg) lbImg.src = '';
+    currentGallery = [];
+    currentIndex = 0;
+  }
+  function showPrev() {
+    if (!currentGallery.length) return;
+    currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+  }
+  function showNext() {
+    if (!currentGallery.length) return;
+    currentIndex = (currentIndex + 1) % currentGallery.length;
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+  }
+
+  if (btnPrev) btnPrev.addEventListener('click', showPrev);
+  if (btnNext) btnNext.addEventListener('click', showNext);
+  if (btnClose) btnClose.addEventListener('click', hideLightbox);
+  if (lightbox) lightbox.addEventListener('click', function (ev) { if (ev.target === lightbox) hideLightbox(); });
+  document.addEventListener('keydown', function (ev) {
+    if (!lightbox || !lightbox.classList.contains('visible')) return;
+    if (ev.key === 'Escape') hideLightbox();
+    if (ev.key === 'ArrowLeft') showPrev();
+    if (ev.key === 'ArrowRight') showNext();
+  });
+
+  /* delegated click handler for thumbs / evidence-image / evidence-link */
+  function delegatedClickHandler(ev) {
+    const t = ev.target;
+    if (!t || !t.classList) return;
+    if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
+
+    // if it's an evidence link, try to show image gallery first
+    if (t.classList.contains('evidence-link')) {
+      ev.preventDefault();
+      const card = t.closest('.report-card');
+      if (!card) { window.open(t.href, '_blank'); return; }
+
+      let gallery = extractImagesFromScriptPayload(card);
+      if (!gallery.length) {
+        // fallback to searching inside card DOM
+        const domImgs = Array.from(card.querySelectorAll('img')).map(i => i.src).filter(Boolean);
+        gallery = domImgs;
+      }
+      if (!gallery.length) { window.open(t.href, '_blank'); return; }
+      buildGallery(card, gallery);
+      const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+      showLightbox(imgs.length ? imgs : gallery, 0);
+      return;
+    }
+
+    // thumb or evidence-image clicked
+    const card = t.closest('.report-card');
+    if (!card) return;
+    const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+    if (imgs.length) {
+      let idx = imgs.indexOf(t.src || t.getAttribute('src') || '');
+      if (idx === -1) idx = 0;
+      showLightbox(imgs, idx);
+      return;
+    }
+    // fallback to script payload
+    const payload = extractImagesFromScriptPayload(card);
+    if (payload.length) showLightbox(payload, 0);
+  }
+  try { document.removeEventListener('click', document.__image_fixer_click); } catch (e) {}
+  document.__image_fixer_click = delegatedClickHandler;
+  document.addEventListener('click', document.__image_fixer_click);
+
+  /* Debounced runner for MutationObserver */
+  let debounceTimer = null;
+  function scheduleRun() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { try { gatherAndInjectAll(); } catch(e){console.error(e);} }, DEBOUNCE_MS);
+  }
+
+  /* MutationObserver */
+  function startObserver() {
+    const target = document.querySelector('.reports-grid') || document.body;
+    if (!target) return;
     const observer = new MutationObserver(mutations => {
-      let found = false;
+      let relevant = false;
       for (const m of mutations) {
         if (m.addedNodes && m.addedNodes.length) {
           for (const n of m.addedNodes) {
-            if (n.nodeType === 1 && n.matches('.report-card')) { found = true; break; }
+            if (n.nodeType === 1 && (n.matches && n.matches('.report-card') || n.querySelector && n.querySelector('.report-card'))) {
+              relevant = true; break;
+            }
           }
         }
-        if (found) break;
+        if (m.type === 'attributes' && (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
+        if (relevant) break;
       }
-      if (found) {
-        setTimeout(() => { populateApproveStateInputs(); wireApproveFormSubmitGuards(); }, 40);
-      }
+      if (relevant) scheduleRun();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-    window.__pending_state_helper_observer = observer;
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class', 'src'] });
+    window.__image_fixer_observer = observer;
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initPendingStateHelpers);
-  else setTimeout(initPendingStateHelpers, 10);
+  /* initial startup: try to run a few times */
+  function startup() {
+    gatherAndInjectAll();
+    let tries = 0;
+    const intId = setInterval(() => {
+      tries++;
+      gatherAndInjectAll();
+      if (tries > 6) clearInterval(intId);
+    }, 400);
+    startObserver();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startup);
+  } else {
+    setTimeout(startup, 10);
+  }
+
+  window.__image_fixer = {
+    run: gatherAndInjectAll,
+    schedule: scheduleRun,
+    startObserver,
+  };
+
+  console.info('image-fixer + media-injector: bootstrap installed (dedupe fixes applied)');
 
 })();
 </script>
+
 
 </body>
 </html>
