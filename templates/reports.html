@@ -22,6 +22,28 @@
     .evidence-link { display:inline-block; margin:6px 8px; padding:6px 10px; background:#222; color:#fff; border-radius:6px; text-decoration:none; }
     .report-card { background:#111; color:#ddd; padding:20px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); margin:18px 0; }
     .report-evidence { margin-top:12px; }
+
+    /* New layout: side-by-side media columns inside report-evidence */
+    .report-evidence {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    /* allow both gallery and videos to sit side-by-side */
+    .report-evidence .evidence-gallery,
+    .report-evidence .evidence-videos {
+      flex: 1 1 320px;      /* grow, shrink, basis */
+      min-width: 220px;
+      max-width: calc(50% - 12px);
+      box-sizing: border-box;
+    }
+    /* fallback when only one exists it'll take full width */
+    .report-evidence .evidence-gallery:only-child,
+    .report-evidence .evidence-videos:only-child {
+      max-width: 100%;
+    }
+
     .lightbox-caption { margin-top:10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
     /* NEW: video + copy UI */
@@ -34,7 +56,12 @@
     .social-links a { display:inline-flex; align-items:center; gap:8px; padding:6px 8px; background: rgba(255,255,255,0.02); color:#ddd; border-radius:6px; text-decoration:none; font-size:0.9rem; border:1px solid rgba(255,255,255,0.02); }
     .social-links a:hover { background: rgba(255,255,255,0.04); color:#fff; }
 
-    @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; left: calc(-1 * (42px + 6px)); right: calc(-1 * (42px + 6px)); } }
+    @media (max-width: 720px) {
+      .report-evidence { flex-direction: column; }
+      .report-evidence .evidence-gallery,
+      .report-evidence .evidence-videos { max-width: 100%; min-width: 0; }
+      .lightbox-arrow { width:42px; height:56px; font-size:22px; left: calc(-1 * (42px + 6px)); right: calc(-1 * (42px + 6px)); }
+    }
     </style>
 </head>
 <body>
