@@ -8,6 +8,8 @@ body {
     line-height: 1.6;
 }
 
+
+
 .header {
     background-color: #BF0A30; /* MAGA red */
     padding: 1rem;
@@ -642,6 +644,26 @@ body {
     .reports-controls { padding: 6px 12px; }
     #reports-search { min-width: 140px; }
     #reports-state { min-width: 140px; }
+}
+
+/* ------------------ ADDED: visually-hide search + state (keeps DOM present) ------------------
+   These rules hide the controls from sight but leave them available to assistive tech
+   and scripts. If you prefer to hide them completely (including from screen readers),
+   replace with `display: none !important;` for both selectors.
+------------------------------------------------------------------------------------------- */
+#reports-search,
+#reports-state {
+    position: absolute !important;
+    left: -9999px !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 
 /* End of appended filter styles */
