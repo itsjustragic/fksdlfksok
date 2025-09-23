@@ -1,6 +1,6 @@
 # main.py - FastAPI backend with Jinja templates
 
-from fastapi import FastAPI, HTTPException, Body, Request, Form
+from fastapi import FastAPI, HTTPException, Body, Request, Form, request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +36,23 @@ approved_reports: List[Dict] = []
 
 SERVICE_URL = "https://charliesmurders.onrender.com"
 
+@app.get("/ping")
+async def ping(request: Request):
+    """
+    Health endpoint used by the internal ping loop and by external checks.
+    - Returns JSON `{"status":"alive"}` for API clients (curl, httpx, etc).
+    - If a browser requests (Accept includes text/html), render templates/ping.html for a human-friendly page.
+    """
+    accept = request.headers.get("accept", "")
+    # If browser likely requested HTML, render a tiny template for humans
+    if "text/html" in accept:
+        try:
+            return templates.TemplateResponse("ping.html", {"request": request, "status": "alive"})
+        except Exception:
+            # fallback to JSON if template missing or rendering fails
+            return {"status": "alive"}
+    # Default: machine-readable JSON
+    return {"status": "alive"}
 
 @app.on_event("startup")
 async def schedule_ping_task():
@@ -77,6 +94,9 @@ async def schedule_ping_task():
                 await asyncio.sleep(120 + backoff_seconds)
 
     asyncio.create_task(ping_loop())
+
+
+
 @app.post("/submit_report")
 def submit_report(report: Dict = Body(...)):
     report['id'] = str(uuid.uuid4())
@@ -186,4 +206,5 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
