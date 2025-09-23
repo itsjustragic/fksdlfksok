@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"> 
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -394,9 +394,13 @@
   function delegatedClickHandler(ev) {
     const t = ev.target;
     if (!t || !t.classList) return;
-    if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image'))) return;
+    if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
 
     // if it's an evidence link, prevent navigation and open gallery instead
+    if (t.classList.contains('evidence-link')) {
+      ev.preventDefault();
+      const card = t.closest('.report-card');
+      if (!card) { window.open(t.href, '_blank'); return; }
 
       const id = card.getAttribute('data-id') || '';
       let gallery = id ? extractFromScriptPayload(card) : [];
@@ -500,5 +504,3 @@
 
 </body>
 </html>
-
-
