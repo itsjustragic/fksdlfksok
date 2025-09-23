@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reportForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            // --- ADD: guard to prevent double-submits from multiple handlers / clicks ---
+            // --- guard: if capture already handled it, bail out ---
             if (window.__reportSubmitting) {
                 console.warn('Submission already in progress (script.js handler). Ignoring duplicate.');
                 return;
@@ -21,29 +21,36 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const formData = new FormData(reportForm);
 
-                // Safely read image_urls (may be null) and normalize into an array
+                // Safely read image_urls and normalize into an array
                 const rawImageUrls = formData.get('image_urls') || '';
                 const imageUrls = (typeof rawImageUrls === 'string' ? rawImageUrls : '')
                     .split(/\r?\n/)
                     .map(u => u.trim())
                     .filter(url => url !== '');
 
+                // Build payload and include multiple image-key aliases for server compatibility
                 const report = {
                     full_name: (formData.get('full_name') || '').toString().trim(),
-                    location: (formData.get('location') || '').toString().trim(),
+                    location: (formData.get('location') || '').toString().trim() || null,
                     occupation: (formData.get('occupation') || '').toString().trim() || null,
                     employer: (formData.get('employer') || '').toString().trim() || null,
-                    evidence_url: (formData.get('evidence_url') || '').toString().trim(),
-                    description: (formData.get('description') || '').toString().trim(),
-                    image_urls: imageUrls,
-                    // NOTE: original form uses 'employer_email' name. Some code expects 'email' — send both if available.
+                    address: (formData.get('address') || '').toString().trim() || null,
                     employer_email: (formData.get('employer_email') || '').toString().trim() || null,
                     email: (formData.get('email') || '').toString().trim() || null,
+                    phone: (formData.get('phone') || '').toString().trim() || null,
+                    evidence_url: (formData.get('evidence_url') || '').toString().trim(),
+                    description: (formData.get('description') || '').toString().trim(),
                     category: (formData.get('category') || '').toString().trim(),
-                    platform: (formData.get('platform') || '').toString().trim()
+                    platform: (formData.get('platform') || '').toString().trim(),
+                    // canonical & alias arrays
+                    image_urls: imageUrls,
+                    imageUrls: imageUrls,
+                    images: imageUrls,
+                    image_list: imageUrls,
+                    images_only: imageUrls
                 };
 
-                // Keep backward compatibility: if only employer_email is provided, also populate email
+                // Keep backward compatibility: mirror employer_email/email
                 if (!report.email && report.employer_email) {
                     report.email = report.employer_email;
                 }
@@ -51,8 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     report.employer_email = report.email;
                 }
 
-                // Basic client-side required check to avoid obvious empty submissions
-                // NOTE: location field is optional in the form; do not require it here.
+                // Basic client-side required check
                 if (!report.full_name || !report.evidence_url || !report.description || !report.category || !report.platform || !report.employer) {
                     alert('Please fill in all required fields.');
                     window.__reportSubmitting = false;
@@ -83,7 +89,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     reportForm.reset();
                     console.log('Report submitted:', report);
                 } else {
-                    // read response body and show it (helps debug server-side 404/500)
                     const text = await response.text();
                     console.error('Submit failed', response.status, text);
                     alert(`Error submitting report: ${response.status}\nServer response: ${text}`);
@@ -92,7 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Error during submit handler:', err);
                 alert('Error: ' + (err && err.message ? err.message : String(err)));
             } finally {
-                // re-enable submit
                 window.__reportSubmitting = false;
                 if (submitBtn) submitBtn.disabled = false;
             }
@@ -112,16 +116,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     const card = document.createElement('div');
                     card.className = 'report-card';
                     card.innerHTML = `
-                        <h2>${report.full_name}</h2>
-                        <p>${report.location || 'N/A'} - ${report.occupation || 'N/A'}</p>
-                        <p>${report.employer || 'N/A'}</p>
-                        <p>${report.description || ''}</p>
-                        <a href="${report.evidence_url}">${report.evidence_url}</a>
+                        <h2>${escapeHtml(report.full_name || 'Anonymous')}</h2>
+                        <p>${escapeHtml(report.location || 'N/A')} - ${escapeHtml(report.occupation || 'N/A')}</p>
+                        <p>${escapeHtml(report.employer || 'N/A')}</p>
+                        <p>${escapeHtml(report.description || '')}</p>
+                        <a href="${escapeAttr(report.evidence_url || '#')}" target="_blank" rel="noopener noreferrer">${escapeAttr(report.evidence_url || '')}</a>
                     `;
-                    if (report.image_urls && report.image_urls.length > 0) {
+                    // try several keys the server might have saved
+                    const imgs = report.image_urls || report.imageUrls || report.images || report.image_list || report.images_only || [];
+                    if (Array.isArray(imgs) && imgs.length > 0) {
                         const evidenceDiv = document.createElement('div');
                         evidenceDiv.className = 'evidence';
-                        report.image_urls.forEach(url => {
+                        imgs.forEach(url => {
                             const img = document.createElement('img');
                             img.src = url;
                             img.alt = 'Evidence Image';
@@ -136,7 +142,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Admin access
+// small helper functions for approved reports rendering
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(s) {
+    if (!s) return '';
+    return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Admin access (unchanged)
 const obfuscatedCodes = [105, 66, 75, 88, 70, 67, 79, 97, 67, 88, 65, 103, 79, 71, 69, 88, 67, 75, 70, 107, 78, 71, 67, 68, 121, 79, 73, 95, 88, 79, 122, 75, 89, 89, 24, 26, 24, 31, 11, 106, 9, 102, 69, 68, 77, 107, 108];
 const key = 42;
 const password = obfuscatedCodes.map(c => String.fromCharCode(c ^ key)).join('');
