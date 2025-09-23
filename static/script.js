@@ -830,10 +830,8 @@ window.denyReport = async (reportId) => {
         const sel = document.createElement('select');
         sel.id = 'reports-state-select';
         sel.style.padding = '8px';
-        const o = document.createElement('option');
-        o.value = '';
-        o.textContent = 'All States';
-        sel.appendChild(o);
+        // NOTE: removed automatic "All States" default option per request
+        // (if server renders an "All/ALL" option it will still be tolerated by normalization)
         panel.appendChild(sel);
 
         const clearBtn = document.createElement('button');
@@ -863,10 +861,8 @@ window.denyReport = async (reportId) => {
         const meaningfulOptions = Array.from(stateSelect.options || []).filter(o => (o.value || '').toString().trim() !== '');
         if (meaningfulOptions.length > 1) return;
         stateSelect.innerHTML = '';
-        const allOpt = document.createElement('option');
-        allOpt.value = '';
-        allOpt.textContent = 'All States';
-        stateSelect.appendChild(allOpt);
+        // NOTE: do NOT add an "All States" option automatically — user requested removing it.
+        // Populate with only the states (abbr as value, full name as text)
         STATES.forEach(st => {
             const opt = document.createElement('option');
             opt.value = st.abbr; // abbr is safer as a value, UI shows full name
@@ -943,29 +939,46 @@ window.denyReport = async (reportId) => {
         }
     }
 
-    // derive desired abbr and name from selection value (supports both abbr and full name)
+    // ------------------- REPLACED: normalizeSelectedState -------------------
     function normalizeSelectedState(value) {
-        // <<< FIX HERE >>>: treat empty or "ALL" as no selection
-        if (!value) return { abbr: '', name: '' };
-        const vv = ('' + value).trim();
-        if (vv.toUpperCase() === 'ALL') return { abbr: '', name: '' };
+        const raw = (value || '').toString().trim();
+        if (!raw) return { abbr: '', name: '' };
+        if (raw.toUpperCase() === 'ALL') return { abbr: '', name: '' };
 
-        const v = vv;
-        if (v.length === 2) {
-            const found = STATES.find(s => s.abbr.toLowerCase() === v.toLowerCase());
-            return found ? { abbr: found.abbr, name: found.name } : { abbr: v.toUpperCase(), name: '' };
+        // Clean up common display strings like "Alaska (AK)" or "AK - Alaska"
+        // Try to capture parentheses abbr first
+        const mParen = raw.match(/\(([A-Za-z]{2})\)$/);
+        if (mParen) {
+            const ab = mParen[1].toUpperCase();
+            const found = STATES.find(s => s.abbr === ab);
+            if (found) return { abbr: found.abbr, name: found.name };
         }
-        // might be full name or abbr spelled out (e.g., "Wyoming")
-        const byName = STATES.find(s => s.name.toLowerCase() === v.toLowerCase());
-        if (byName) return { abbr: byName.abbr, name: byName.name };
-        // also accept if value is a full name but casing different, or if value is the display text in option but value is abbr
-        const byAbbr = STATES.find(s => s.abbr.toLowerCase() === v.toLowerCase());
-        if (byAbbr) return { abbr: byAbbr.abbr, name: byAbbr.name };
-        // fallback: return string in both fields so we can compare against full name
-        return { abbr: '', name: v };
-    }
 
-    // main filtering function (uses all report cards on the page)
+        // If it's a 2-letter code, match abbr
+        if (/^[A-Za-z]{2}$/.test(raw)) {
+            const ab = raw.toUpperCase();
+            const found = STATES.find(s => s.abbr === ab);
+            return found ? { abbr: found.abbr, name: found.name } : { abbr: ab, name: '' };
+        }
+
+        // If it's a full name (case-insensitive), match by name
+        const byName = STATES.find(s => s.name.toLowerCase() === raw.toLowerCase());
+        if (byName) return { abbr: byName.abbr, name: byName.name };
+
+        // If value contains an abbr and name separated by dash/pipe, try to pick abbr
+        const dashMatch = raw.match(/([A-Za-z]{2})\b/);
+        if (dashMatch) {
+            const ab = dashMatch[1].toUpperCase();
+            const found = STATES.find(s => s.abbr === ab);
+            if (found) return { abbr: found.abbr, name: found.name };
+        }
+
+        // Fallback: treat as a full-name fragment (useful if select uses display text)
+        return { abbr: '', name: raw };
+    }
+    // ------------------- END normalizeSelectedState -------------------
+
+    // ------------------- REPLACED: filterReports -------------------
     function filterReports() {
         const searchInput = document.getElementById('reports-search') || document.getElementById('reports-search-input');
         const stateSelect = document.getElementById('reports-state') || document.getElementById('reports-state-select');
@@ -973,41 +986,49 @@ window.denyReport = async (reportId) => {
 
         const q = norm(searchInput && searchInput.value);
         const rawState = (stateSelect && (stateSelect.value || '') ) || '';
-        // <<< FIX HERE >>>: normalize server template "ALL" to empty
-        const normalizedRawState = ('' + rawState).trim().toUpperCase() === 'ALL' ? '' : rawState;
+        const normalizedRawState = ('' + rawState).trim();
         const desired = normalizeSelectedState(normalizedRawState);
 
         const cards = allReportCards();
         let visible = 0;
 
+        // bool: has a real state selection (abbr or name)
+        const stateSelected = Boolean(desired && (desired.abbr || desired.name));
+
         cards.forEach(card => {
-            annotateCard(card);
+            annotateCard(card); // ensure card has data-* attributes
             let show = true;
 
-            // state filtering: if a state is chosen, only show exact matches
-            if (desired && (desired.abbr || desired.name)) {
+            // When a state is selected, **start hidden** and only unhide exact matches.
+            if (stateSelected) {
+                show = false;
+
                 const csAbbr = (card.getAttribute('data-state') || '').toString().trim().toUpperCase();
                 const csFull = (card.getAttribute('data-state-full') || '').toString().trim().toLowerCase();
-                const desiredAbbr = (desired.abbr || '').toString().trim().toUpperCase();
-                const desiredName = (desired.name || '').toString().trim().toLowerCase();
+                const loc = (card.getAttribute('data-location') || '').toString().trim().toLowerCase();
 
-                // show card only if it matches abbr OR matches full name
-                const abbrMatch = desiredAbbr && csAbbr && csAbbr === desiredAbbr;
-                const nameMatch = desiredName && csFull && csFull === desiredName;
-
-                // Also accept if either location text contains the full name (defensive)
-                let fallbackMatch = false;
-                if (!abbrMatch && !nameMatch) {
-                    const loc = (card.getAttribute('data-location') || '').toString().trim().toLowerCase();
-                    if (desiredName && loc && loc.includes(desiredName)) fallbackMatch = true;
+                // 1) exact abbr match
+                if (desired.abbr && csAbbr && csAbbr === desired.abbr) {
+                    show = true;
                 }
-
-                if (!(abbrMatch || nameMatch || fallbackMatch)) {
-                    show = false;
+                // 2) exact full-name match
+                else if (desired.name && csFull && csFull === desired.name.toLowerCase()) {
+                    show = true;
+                }
+                // 3) fallback: location contains full name (defensive)
+                else if (desired.name && loc && loc.indexOf(desired.name.toLowerCase()) !== -1) {
+                    show = true;
+                }
+                // 4) additional defensive check: sometimes data-state is blank but data-location contains "AK" token
+                else if (desired.abbr) {
+                    const tokenRe = new RegExp('\\b' + desired.abbr + '\\b', 'i');
+                    if (tokenRe.test(card.getAttribute('data-location') || '')) {
+                        show = true;
+                    }
                 }
             }
 
-            // free-text filtering
+            // Free-text search still applies (AND with state selection)
             if (q) {
                 const fields = [
                     card.getAttribute('data-fullname') || '',
@@ -1020,18 +1041,15 @@ window.denyReport = async (reportId) => {
                 if (!fields.includes(q)) show = false;
             }
 
-            if (show) {
-                card.style.display = '';
-                visible++;
-            } else {
-                card.style.display = 'none';
-            }
+            card.style.display = show ? '' : 'none';
+            if (show) visible++;
         });
 
         if (noResults) {
             noResults.style.display = visible === 0 ? '' : 'none';
         }
     }
+    // ------------------- END filterReports -------------------
 
     // observe DOM for added report-cards and re-run annotate+filter
     function wireObserver() {
@@ -1074,7 +1092,7 @@ window.denyReport = async (reportId) => {
         const stateEl = controls.stateSelect || document.getElementById('reports-state') || document.getElementById('reports-state-select');
         populateStateSelect(stateEl);
 
-        // normalize server-side "ALL" first option if present
+        // normalize server-side "ALL" first option if present (kept for compatibility)
         if (stateEl && stateEl.options && stateEl.options.length) {
             const first = stateEl.options[0];
             if (first && first.value && first.value.toUpperCase() === 'ALL') first.value = '';
