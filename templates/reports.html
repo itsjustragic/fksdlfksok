@@ -351,6 +351,32 @@
 })();
 </script>
 
-<script src="/static/script.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('script[type="application/json"][data-report-images-for]').forEach(s=>{
+    const id = s.getAttribute('data-report-images-for');
+    let arr = [];
+    try { arr = JSON.parse(s.textContent||'[]'); } catch(e) {
+      arr = (s.textContent||'').match(/\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi)||[];
+    }
+    arr = Array.isArray(arr)? arr : [];
+    if(!arr.length) return;
+    const card = document.querySelector('.report-card[data-id="'+id+'"]');
+    if(!card) return;
+    let gallery = card.querySelector('.evidence-gallery');
+    if(!gallery){ gallery = document.createElement('div'); gallery.className='evidence-gallery'; card.querySelector('.report-evidence')?.appendChild(gallery) ?? card.appendChild(gallery); }
+    arr.forEach(u=>{
+      if(!u) return;
+      if(!gallery.querySelector('img[src="'+u+'"]')){
+        const img = document.createElement('img');
+        img.className='thumb'; img.loading='lazy'; img.src = u; img.alt='Additional evidence';
+        gallery.appendChild(img);
+      }
+    });
+  });
+});
+</script>
+
 </body>
 </html>
+
