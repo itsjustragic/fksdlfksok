@@ -18,6 +18,7 @@
     .evidence-gallery { display:block; margin-top:8px; }
     .evidence-gallery img { max-width:180px; margin:6px; display:inline-block; vertical-align:top; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.35) }
     .evidence-link { display:inline-block; margin:6px 8px; padding:6px 10px; background:#222; color:#fff; border-radius:6px; text-decoration:none; }
+    .report-evidence { margin-top:12px; }
     .report-card { background:#111; color:#ddd; padding:20px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); margin:18px 0; }
 
     /* NEW: video + social styling */
@@ -89,7 +90,7 @@
                                     {% elif ext in ['mp4','webm','mov','m3u8'] %}
                                         {# render a small video preview if direct video URL provided server-side #}
                                         <div class="evidence-videos">
-                                          <div class="video-item" data-src="{{ report.evidence_url }}">
+                                          <div class="video-item">
                                             <video controls preload="metadata" poster="" crossorigin="anonymous">
                                               <source src="{{ report.evidence_url }}" type="video/{{ ext }}">
                                               Your browser does not support the video tag.
@@ -179,32 +180,13 @@
                                 {% endif %}
                             {% endif %}
 
-                            {# --- NORMALIZE + DEDUPE vid_list BEFORE RENDERING --- #}
-                            {% set _seen_vid_candidates = [] %}
-                            {% set _normalized_vids = [] %}
-                            {% for url in vid_list %}
-                                {% if url is string %}
-                                    {% set uu = url.strip() %}
-                                    {% if uu.startswith('<') and uu.endswith('>') %}{% set uu = uu[1:-1].strip() %}{% endif %}
-                                    {% set uu = uu.strip().strip('"').strip("'") %}
-                                    {# canonical key: strip query/hash and trailing slash #}
-                                    {% set candidate = uu.split('?')[0].split('#')[0].rstrip('/') %}
-                                    {% if candidate and (candidate not in _seen_vid_candidates) %}
-                                        {% set _seen_vid_candidates = _seen_vid_candidates + [candidate] %}
-                                        {% set _normalized_vids = _normalized_vids + [uu] %}
-                                    {% endif %}
-                                {% endif %}
-                            {% endfor %}
-                            {% set vid_list = _normalized_vids %}
-                            {# --- end normalize/dedupe --- #}
-
                             {% if vid_list and vid_list|length > 0 %}
                                 <div class="evidence-videos" aria-label="evidence videos">
                                     {% for v in vid_list %}
                                         {% set vstr = v %}
                                         {% set vcandidate = vstr.split('?')[0].split('#')[0].rstrip('/') %}
                                         {% set vext = vcandidate.rsplit('.',1)[-1]|lower if '.' in vcandidate else '' %}
-                                        <div class="video-item" data-src="{{ v }}">
+                                        <div class="video-item">
                                             {% if vext in ['mp4','webm','ogg','mov'] %}
                                                 <video controls preload="metadata" crossorigin="anonymous">
                                                     <source src="{{ v }}" type="video/{{ vext }}">
@@ -429,17 +411,6 @@
   function injectVideos(card, urls) {
     if (!urls || !urls.length) return [];
     const cont = ensureVideoContainer(card);
-
-    // ---- mark existing video-item wrappers that are missing data-src ----
-    Array.from(cont.querySelectorAll('.video-item')).forEach(el => {
-      if (!el.getAttribute('data-src')) {
-        // prefer <video><source>, then an evidence-link
-        const vidSource = (el.querySelector('video source') && el.querySelector('video source').src) ||
-                          (el.querySelector('a.evidence-link') && el.querySelector('a.evidence-link').href) ||
-                          '';
-        if (vidSource) el.setAttribute('data-src', normalizeUrl(vidSource));
-      }
-    });
 
     // Build set of already-present data-src (reliable even across runs)
     const alreadyPresent = new Set();
@@ -761,7 +732,7 @@
             }
           }
         }
-        if (m.type === 'attributes' and (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
+        if (m.type === 'attributes' && (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
         if (relevant) break;
       }
       if (relevant) scheduleRun();
@@ -802,3 +773,856 @@
 
 </body>
 </html>
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Reports - Charlie Kirk Memorial</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+    /* lightbox / thumb styles */
+    .lightbox-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:99999; padding:20px; }
+    .lightbox-overlay.visible { display:flex; }
+    .lightbox-container { position: relative; max-width:95%; max-height:95%; display:flex; align-items:center; justify-content:center; overflow: visible; }
+    .lightbox-image { max-width:100%; max-height:100%; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display:block; }
+    .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer }
+    .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.55); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; display:none; align-items:center; justify-content:center; }
+    .lightbox-arrow.left { left: calc(-1 * (48px + 8px)); }   /* slightly outside left */
+    .lightbox-arrow.right { right: calc(-1 * (48px + 8px)); }  /* slightly outside right */
+    .thumb, .evidence-image { cursor: zoom-in; max-width:100%; border-radius:4px; display:block; margin:8px 0; }
+    .evidence-gallery { display:block; margin-top:8px; }
+    .evidence-gallery img { max-width:180px; margin:6px; display:inline-block; vertical-align:top; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.35); }
+    .evidence-link { display:inline-block; margin:6px 8px; padding:6px 10px; background:#222; color:#fff; border-radius:6px; text-decoration:none; }
+    .report-card { background:#111; color:#ddd; padding:20px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); margin:18px 0; }
+    .report-evidence { margin-top:12px; }
+    .lightbox-caption { margin-top:10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* NEW: video + copy UI */
+    .evidence-videos { margin-top:12px; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+    .video-item { display:flex; flex-direction:column; gap:6px; max-width:320px; }
+    .video-item video { width:100%; height:auto; border-radius:8px; background:#000; }
+    .video-actions { display:flex; gap:8px; align-items:center; }
+    .copy-button { cursor:pointer; padding:6px 8px; border-radius:6px; background: rgba(255,255,255,0.04); color:#fff; border: 1px solid rgba(255,255,255,0.04); font-size:0.9rem; }
+    .social-links { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .social-links a { display:inline-flex; align-items:center; gap:8px; padding:6px 8px; background: rgba(255,255,255,0.02); color:#ddd; border-radius:6px; text-decoration:none; font-size:0.9rem; border:1px solid rgba(255,255,255,0.02); }
+    .social-links a:hover { background: rgba(255,255,255,0.04); color:#fff; }
+
+    @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; left: calc(-1 * (42px + 6px)); right: calc(-1 * (42px + 6px)); } }
+    </style>
+</head>
+<body>
+<header class="header">
+    <div class="header-container">
+        <h1>WE ARE CHARLIE KIRK</h1>
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/report">Report</a></li>
+                <li><a href="/reports">Reports</a></li>
+            </ul>
+        </nav>
+    </div>
+</header>
+
+<main class="reports-section">
+    <div class="section-header">
+        <h2>Verified Reports</h2>
+        <p class="subtitle">Verified reports made public.</p>
+    </div>
+
+    <!-- FILTER CONTROLS (unchanged) -->
+    <div class="reports-controls" aria-label="Filter reports">
+        <div class="controls-inner">
+            <label for="reports-search" class="visually-hidden">Search reports</label>
+            <input id="reports-search" type="search" placeholder="Search by name, description, employer, platform..." aria-label="Search reports">
+            <label for="reports-state" class="visually-hidden">Filter by state</label>
+            <select id="reports-state" aria-label="Filter reports by state">
+                <!-- states list (removed server-side 'All States' option — client script will populate) -->
+            </select>
+        </div>
+        <div id="no-results" class="no-results" style="display:none;"></div>
+    </div>
+
+    <div class="reports-grid" id="reports-grid">
+        {% set _seen_sigs = [] %}
+        {% for report in reports %}
+            {% set sig = (report.full_name or '') ~ '|' ~ (report.platform or '') ~ '|' ~ (report.description or '') ~ '|' ~ (report.evidence_url or '') %}
+            {% if sig in _seen_sigs %}
+            {% else %}
+                {% set _seen_sigs = _seen_sigs + [sig] %}
+                <article class="report-card" role="article" aria-labelledby="r-{{ report.id }}" data-id="{{ report.id }}">
+                    <header class="report-card-header">
+                        <h3 id="r-{{ report.id }}">{{ report.full_name or "Anonymous" }}</h3>
+                        <div class="meta">
+                            <span class="meta-item">{{ report.location or 'N/A' }}</span>
+                            <span class="meta-sep">•</span>
+                            <span class="meta-item">{{ report.platform or 'Unknown' }}</span>
+                        </div>
+                    </header>
+
+                    <div class="report-card-body">
+                        <p class="small"><strong>Category:</strong> {{ report.category or 'N/A' }}</p>
+                        <p class="small"><strong>Occupation:</strong> {{ report.occupation or 'N/A' }}</p>
+                        <p class="small"><strong>Employer:</strong> {{ report.employer or 'N/A' }}</p>
+                        <p class="small"><strong>Address:</strong> {{ report.address or 'N/A' }}</p>
+                        <p class="small"><strong>Phone:</strong> {{ report.phone or 'N/A' }}</p>
+                        <p class="small"><strong>Their Emails:</strong> {{ report.employer_email or 'N/A' }}</p>
+                        <p class="desc">{{ report.description }}</p>
+
+                        <!-- ADDED: data-images attribute so client can always read server-provided images -->
+                        <div class="report-evidence" data-images='{{ (images_only or report.image_urls or report.image_list or report.images or report.imageUrls or []) | tojson | safe }}'>
+                            {# server-side attempt to render evidence_url if image or direct video #}
+                            {% if report.evidence_url %}
+                                {% set ev2 = report.evidence_url %}
+                                {% if ev2 is string %}
+                                    {% set chk = ev2.strip() %}
+                                    {% set candidate = chk.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                    {% if ext in ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
+                                        <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
+                                    {% elif ext in ['mp4','webm','ogg','mov'] %}
+                                        <div class="evidence-videos">
+                                            <div class="video-item">
+                                                <video controls preload="metadata" crossorigin="anonymous">
+                                                    <source src="{{ report.evidence_url }}" type="video/{{ ext }}">
+                                                    Your browser does not support the video tag.
+                                                </video>
+                                                <div class="video-actions">
+                                                    <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">Open video</a>
+                                                    <button type="button" class="copy-button" data-copy-url="{{ report.evidence_url }}">Copy URL</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+
+                            {# server-side robust image_list construction (unchanged) #}
+                            {% set image_list = [] %}
+                            {% if report.image_urls %}
+                                {% if report.image_urls is string %}
+                                    {% set raw = report.image_urls.strip() %}
+                                    {% if raw.startswith('[') and raw.endswith(']') %}
+                                        {% set inner = raw[1:-1] %}
+                                        {% for part in inner.split(',') %}
+                                            {% set p = part.strip().strip('"').strip("'") %}
+                                            {% if p %}{% set image_list = image_list + [p] %}{% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        {% for line in report.image_urls.splitlines() %}
+                                            {% for part in line.split(',') %}
+                                                {% set u = part.strip() %}
+                                                {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
+                                                {% set u = u.strip().strip('"').strip("'") %}
+                                                {% if u %}{% set image_list = image_list + [u] %}{% endif %}
+                                            {% endfor %}
+                                        {% endfor %}
+                                    {% endif %}
+                                {% else %}
+                                    {% for item in report.image_urls %}{% if item %}{% set u = item %}{% if u is string %}{% set u = u.strip() %}{% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}{% set u = u.strip().strip('"').strip("'") %}{% endif %}{% if u %}{% set image_list = image_list + [u] %}{% endif %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% for altkey in ['image_list','images_only','images','imageUrls'] %}
+                                {% if report[altkey] is defined and report[altkey] %}
+                                    {% if report[altkey] is string %}
+                                        {% for line in report[altkey].splitlines() %}
+                                            {% for part in line.split(',') %}
+                                                {% set v = part.strip() %}
+                                                {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                            {% endfor %}
+                                        {% endfor %}
+                                    {% else %}
+                                        {% for item in report[altkey] %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {% set seen = [] %}
+                            {% set normalized = [] %}
+                            {% for u in image_list %}
+                                {% if u is string %}
+                                    {% set uu = u.strip() %}
+                                    {% if uu.startswith('<') and uu.endswith('>') %}{% set uu = uu[1:-1].strip() %}{% endif %}
+                                    {% set uu = uu.strip().strip('"').strip("'") %}
+                                    {% if uu and uu not in seen %}{% set seen = seen + [uu] %}{% set normalized = normalized + [uu] %}{% endif %}
+                                {% endif %}
+                            {% endfor %}
+                            {% set image_list = normalized %}
+
+                            {% set img_exts = ['jpg','jpeg','png','gif','webp','bmp','mp4'] %}
+                            {% set images_only = [] %}
+                            {% if report.evidence_url %}
+                                {% set ev = report.evidence_url %}
+                                {% if ev is string %}
+                                    {% set ev2 = ev.strip() %}
+                                    {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
+                                    {% set candidate = ev2.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                    {% if ext in img_exts %}{% set images_only = images_only + [ev] %}{% endif %}
+                                {% endif %}
+                            {% endif %}
+                            {% for url in image_list %}
+                                {% set candidate = url.split('?')[0].split('#')[0].rstrip('/') %}
+                                {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                {% if ext in img_exts and (url not in images_only) %}{% set images_only = images_only + [url] %}{% endif %}
+                            {% endfor %}
+
+                            {% if image_list and image_list|length > 0 %}
+                                <div class="evidence-gallery">
+                                    {% for url in image_list %}
+                                        {% set candidate = url.split('?')[0].split('#')[0].rstrip('/') %}
+                                        {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                        {% if ext in img_exts %}
+                                            <img src="{{ url }}" alt="Additional evidence" class="thumb" loading="lazy">
+                                        {% else %}
+                                            <a href="{{ url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View link</a>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            {# NEW: server-side social links (if present on report object) #}
+                            {% set socials = [] %}
+                            {% if report.twitter_url %}{% set socials = socials + [{'label':'X/Twitter','url':report.twitter_url}] %}{% endif %}
+                            {% if report.instagram_url %}{% set socials = socials + [{'label':'Instagram','url':report.instagram_url}] %}{% endif %}
+                            {% if report.facebook_url %}{% set socials = socials + [{'label':'Facebook','url':report.facebook_url}] %}{% endif %}
+                            {% if report.tiktok_url %}{% set socials = socials + [{'label':'TikTok','url':report.tiktok_url}] %}{% endif %}
+                            {% if report.youtube_url %}{% set socials = socials + [{'label':'YouTube','url':report.youtube_url}] %}{% endif %}
+                            {% if report.other_socials %}
+                                {% if report.other_socials is string %}
+                                    {% for line in report.other_socials.splitlines() %}
+                                        {% set u = line.strip() %}
+                                        {% if u %}{% set socials = socials + [{'label':'Other','url':u}] %}{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for u in report.other_socials %}{% if u %}{% set socials = socials + [{'label':'Other','url':u}] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if socials and socials|length > 0 %}
+                                <div class="social-links" aria-label="social links">
+                                    {% for s in socials %}
+                                        <a href="{{ s.url }}" target="_blank" rel="noopener noreferrer">{{ s.label }}</a>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            {# NEW: server-side video list rendering (report.video_url / report.video_urls / report.videos) #}
+                            {% set vid_list = [] %}
+                            {% if report.video_url %}{% set vid_list = vid_list + [report.video_url] %}{% endif %}
+                            {% if report.video_urls %}
+                                {% if report.video_urls is string %}
+                                    {% for line in report.video_urls.splitlines() %}
+                                        {% set u = line.strip() %}
+                                        {% if u %}{% set vid_list = vid_list + [u] %}{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for u in report.video_urls %}{% if u %}{% set vid_list = vid_list + [u] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+                            {% if report.videos %}
+                                {% if report.videos is string %}
+                                    {% for line in report.videos.splitlines() %}
+                                        {% set u = line.strip() %}
+                                        {% if u %}{% set vid_list = vid_list + [u] %}{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {% for u in report.videos %}{% if u %}{% set vid_list = vid_list + [u] %}{% endif %}{% endfor %}
+                                {% endif %}
+                            {% endif %}
+
+                            {% if vid_list and vid_list|length > 0 %}
+                                <div class="evidence-videos" aria-label="evidence videos">
+                                    {% for v in vid_list %}
+                                        {% set vstr = v %}
+                                        {% set vcandidate = vstr.split('?')[0].split('#')[0].rstrip('/') %}
+                                        {% set vext = vcandidate.rsplit('.',1)[-1]|lower if '.' in vcandidate else '' %}
+                                        <div class="video-item">
+                                            {% if vext in ['mp4','webm','ogg','mov'] %}
+                                                <video controls preload="metadata" crossorigin="anonymous">
+                                                    <source src="{{ v }}" type="video/{{ vext }}">
+                                                    Your browser does not support the video tag.
+                                                </video>
+                                                <div class="video-actions">
+                                                    <a href="{{ v }}" class="evidence-link" target="_blank" rel="noopener noreferrer">Open video</a>
+                                                    <button type="button" class="copy-button" data-copy-url="{{ v }}">Copy URL</button>
+                                                </div>
+                                            {% else %}
+                                                <a href="{{ v }}" class="evidence-link" target="_blank" rel="noopener noreferrer">Open media</a>
+                                                <button type="button" class="copy-button" data-copy-url="{{ v }}">Copy URL</button>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                        </div>
+
+                        <script type="application/json" data-report-images-for="{{ report.id }}">
+                            {{ (images_only or []) | tojson }}
+                        </script>
+
+                        {# NEW: media payload so the client-side injector can also read videos and socials #}
+                        <script type="application/json" data-report-media-for="{{ report.id }}">
+                            {{
+                                (
+                                    {
+                                        "video_urls": (report.video_urls or report.videos or []),
+                                        "video_url": (report.video_url or ''),
+                                        "twitter_url": (report.twitter_url or ''),
+                                        "instagram_url": (report.instagram_url or ''),
+                                        "facebook_url": (report.facebook_url or ''),
+                                        "tiktok_url": (report.tiktok_url or ''),
+                                        "youtube_url": (report.youtube_url or ''),
+                                        "other_socials": (report.other_socials or [])
+                                    }
+                                ) | tojson
+                            }}
+                        </script>
+
+                    </div>
+                </article>
+            {% endif %}
+        {% endfor %}
+    </div>
+</main>
+
+<!-- Lightbox DOM -->
+<div id="lightbox" class="lightbox-overlay" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="lightbox-container">
+        <button class="lightbox-arrow left" aria-label="Previous image" id="lb-prev">&#x2190;</button>
+        <img src="" alt="" class="lightbox-image" id="lightbox-img">
+        <button class="lightbox-arrow right" aria-label="Next image" id="lb-next">&#x2192;</button>
+        <button class="lightbox-close" aria-label="Close lightbox" id="lb-close">&times;</button>
+    </div>
+    <div class="lightbox-caption" id="lightbox-caption"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
+  const VIDEO_EXT_RE = /\.(mp4|webm|ogg|mov|m3u8|ts)(?:[?#].*)?$/i;
+  const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+  const HTTP_VIDEO_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:mp4|webm|ogg|mov|m3u8|ts)(?:[?#][^\s'"]*)?/gi;
+  const DEBOUNCE_MS = 120;
+
+  function normalizeUrl(u) {
+    if (!u) return '';
+    u = ('' + u).trim();
+    if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
+    if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
+    return u.trim();
+  }
+
+  // safe CSS.escape fallback
+  function cssEscape(s) {
+    if (window.CSS && CSS.escape) return CSS.escape(s);
+    return ('' + s).replace(/([^\w-])/g, '\\$1');
+  }
+
+  /* Read images from data- attribute or script payload (existing logic) */
+  function extractImagesFromScriptPayload(card) {
+    try {
+      const evidenceEl = card.querySelector('.report-evidence');
+      if (evidenceEl && evidenceEl.dataset && evidenceEl.dataset.images) {
+        try {
+          const parsed = JSON.parse(evidenceEl.dataset.images);
+          if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+          if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+        } catch (e) {
+          // fallthrough
+        }
+      }
+      const script = card.querySelector('script[type="application/json"][data-report-images-for]');
+      if (!script) return [];
+      const txt = script.textContent || '[]';
+      try {
+        const parsed = JSON.parse(txt);
+        if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+        if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
+      } catch (e) {
+        const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
+        return found.map(normalizeUrl).filter(u => IMG_EXT_RE.test(u));
+      }
+    } catch (e) {
+      console.error('image-fixer: extractFromScriptPayload error', e);
+      return [];
+    }
+    return [];
+  }
+
+  /* Extract videos & socials from the media payload script (if present) or fallback to scanning */
+  function extractMediaFromScriptPayload(card) {
+    const script = card.querySelector('script[type="application/json"][data-report-media-for]');
+    if (!script) return { videos: [], socials: [] };
+    try {
+      const obj = JSON.parse(script.textContent || '{}');
+      const videos = [];
+      if (obj.video_url) videos.push(normalizeUrl(obj.video_url));
+      if (obj.video_urls && Array.isArray(obj.video_urls)) videos.push(...obj.video_urls.map(normalizeUrl));
+      if (obj.videos && Array.isArray(obj.videos)) videos.push(...obj.videos.map(normalizeUrl));
+      if (typeof obj.video_urls === 'string') videos.push(...obj.video_urls.split(/[\r\n,]+/).map(normalizeUrl));
+      const socials = [];
+      ['twitter_url','instagram_url','facebook_url','tiktok_url','youtube_url'].forEach(k => {
+        if (obj[k]) socials.push(normalizeUrl(obj[k]));
+      });
+      if (obj.other_socials && Array.isArray(obj.other_socials)) obj.other_socials.forEach(u => { if (u) socials.push(normalizeUrl(u)); });
+      if (typeof obj.other_socials === 'string') obj.other_socials.split(/[\r\n,]+/).forEach(u => { if (u) socials.push(normalizeUrl(u)); });
+      return { videos: videos.filter(Boolean), socials: socials.filter(Boolean) };
+    } catch (e) {
+      const txt = script.textContent || '';
+      const foundVideos = (txt.match(HTTP_VIDEO_TOKEN_RE) || []).map(normalizeUrl);
+      const httpTokens = (txt.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).map(normalizeUrl);
+      const socials = httpTokens.filter(t => !IMG_EXT_RE.test(t) && !VIDEO_EXT_RE.test(t));
+      return { videos: Array.from(new Set(foundVideos)), socials: Array.from(new Set(socials)) };
+    }
+  }
+
+  /* Extract possible videos and socials from anchors / text in DOM */
+  function extractFromDOMForMedia(card) {
+    const videos = new Set();
+    const socials = new Set();
+    Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if (VIDEO_EXT_RE.test(href)) videos.add(normalizeUrl(href));
+      else if (!IMG_EXT_RE.test(href)) socials.add(normalizeUrl(href));
+    });
+    const text = card.innerText || card.textContent || '';
+    let m;
+    while ((m = HTTP_VIDEO_TOKEN_RE.exec(text)) !== null) videos.add(normalizeUrl(m[0]));
+    (text.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).forEach(t => {
+      const n = normalizeUrl(t);
+      if (!VIDEO_EXT_RE.test(n) && !IMG_EXT_RE.test(n)) socials.add(n);
+    });
+    return { videos: Array.from(videos), socials: Array.from(socials) };
+  }
+
+  function ensureGallery(card) {
+    let g = card.querySelector('.evidence-gallery');
+    if (!g) {
+      g = document.createElement('div');
+      g.className = 'evidence-gallery';
+      const evidenceBlock = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceBlock.appendChild(g);
+    }
+    return g;
+  }
+
+  // Build gallery but avoid duplicates using data-src
+  function buildGallery(card, urls) {
+    if (!urls || !urls.length) return [];
+    const gallery = ensureGallery(card);
+    const existing = new Set(Array.from(gallery.querySelectorAll('img[data-src]')).map(i => normalizeUrl(i.getAttribute('data-src'))));
+    const injected = [];
+    urls.forEach(u => {
+      if (!u) return;
+      const n = normalizeUrl(u);
+      if (!IMG_EXT_RE.test(n)) return;
+      if (existing.has(n)) return;
+      try {
+        const img = document.createElement('img');
+        img.src = n;
+        img.alt = 'Additional evidence';
+        img.loading = 'lazy';
+        img.className = 'thumb';
+        img.setAttribute('data-auto-injected', '1');
+        img.setAttribute('data-src', n);
+        gallery.appendChild(img);
+        injected.push(n);
+        existing.add(n);
+      } catch (e) {
+        console.warn('image-fixer: failed to create img for', n, e);
+      }
+    });
+    return injected;
+  }
+
+  /* NEW: inject video elements / links and copy buttons (fixed to avoid duplicates) */
+  function ensureVideoContainer(card) {
+    let cont = card.querySelector('.evidence-videos');
+    if (!cont) {
+      cont = document.createElement('div');
+      cont.className = 'evidence-videos';
+      const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+      evidenceContainer.appendChild(cont);
+    }
+    return cont;
+  }
+
+  function injectVideos(card, urls) {
+    if (!urls || !urls.length) return [];
+    const cont = ensureVideoContainer(card);
+
+    // Build set of already-present data-src (reliable even across runs)
+    const alreadyPresent = new Set();
+    Array.from(cont.querySelectorAll('.video-item[data-src]')).forEach(el => {
+      alreadyPresent.add(normalizeUrl(el.getAttribute('data-src')));
+    });
+    // Also include existing <video> <source> or links (older markup)
+    Array.from(cont.querySelectorAll('video source')).forEach(s => { if (s.src) alreadyPresent.add(normalizeUrl(s.src)); });
+    Array.from(cont.querySelectorAll('a.evidence-link')).forEach(a => { if (a.href) alreadyPresent.add(normalizeUrl(a.href)); });
+
+    const injected = [];
+    // normalize+dedupe the incoming list
+    const uniq = Array.from(new Set(urls.map(normalizeUrl).filter(Boolean)));
+
+    uniq.forEach(n => {
+      if (!n) return;
+      if (alreadyPresent.has(n)) return; // skip if already there
+      try {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'video-item';
+        wrapper.setAttribute('data-src', n); // mark the wrapper so future runs see it
+
+        const vcandidate = n.split('?')[0].split('#')[0].trim();
+        const ext = (vcandidate.includes('.') ? vcandidate.split('.').pop().toLowerCase() : '');
+        if (VIDEO_EXT_RE.test(n) && ['mp4','webm','ogg','mov'].indexOf(ext) >= 0) {
+          const video = document.createElement('video');
+          video.controls = true;
+          video.preload = 'metadata';
+          video.crossOrigin = 'anonymous';
+          const source = document.createElement('source');
+          source.src = n;
+          source.type = 'video/' + (ext === 'mp4' ? 'mp4' : (ext === 'webm' ? 'webm' : 'ogg'));
+          video.appendChild(source);
+          wrapper.appendChild(video);
+
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
+          const open = document.createElement('a');
+          open.className = 'evidence-link';
+          open.href = n;
+          open.target = '_blank';
+          open.rel = 'noopener noreferrer';
+          open.textContent = 'Open video';
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'copy-button';
+          copyBtn.setAttribute('data-copy-url', n);
+          copyBtn.textContent = 'Copy URL';
+          actions.appendChild(open);
+          actions.appendChild(copyBtn);
+          wrapper.appendChild(actions);
+
+        } else {
+          // fallback: link + copy
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
+          const open = document.createElement('a');
+          open.className = 'evidence-link';
+          open.href = n;
+          open.target = '_blank';
+          open.rel = 'noopener noreferrer';
+          open.textContent = 'Open media';
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'copy-button';
+          copyBtn.setAttribute('data-copy-url', n);
+          copyBtn.textContent = 'Copy URL';
+          actions.appendChild(open);
+          actions.appendChild(copyBtn);
+          wrapper.appendChild(actions);
+        }
+
+        cont.appendChild(wrapper);
+
+        // mark as present to prevent duplicates within same run or future runs
+        alreadyPresent.add(n);
+        injected.push(n);
+      } catch (e) {
+        console.warn('injectVideos: error for', n, e);
+      }
+    });
+
+    return injected;
+  }
+
+  /* copy helper */
+  async function copyToClipboard(text) {
+    if (!text) return Promise.reject(new Error('NO_TEXT'));
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function wireCopyButtons(root) {
+    root = root || document;
+    root.querySelectorAll('.copy-button[data-copy-url]').forEach(btn => {
+      if (btn.__wired) return;
+      btn.addEventListener('click', async function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const url = btn.getAttribute('data-copy-url') || '';
+        if (!url) return;
+        btn.disabled = true;
+        const prev = btn.textContent;
+        try {
+          await copyToClipboard(url);
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1400);
+        } catch (e) {
+          console.error('copy failed', e);
+          btn.textContent = 'Copy failed';
+          setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1600);
+        }
+      });
+      btn.__wired = true;
+    });
+  }
+
+  /* main gather/inject function */
+  function gatherAndInjectAll() {
+    const cards = Array.from(document.querySelectorAll('.report-card'));
+    if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
+    cards.forEach(card => {
+      try {
+        // images
+        const imgsFromScript = extractImagesFromScriptPayload(card);
+        const imgsFromDom = (function(){
+          const found = new Set();
+          Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+          Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+            const href = a.getAttribute('href') || '';
+            if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
+            try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e) {}
+          });
+          const text = card.innerText || card.textContent || '';
+          let match;
+          while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) found.add(normalizeUrl(match[0]));
+          return Array.from(found);
+        })();
+        const combinedImages = Array.from(new Set(Array.prototype.concat(imgsFromScript, imgsFromDom)));
+        const images = combinedImages.filter(u => IMG_EXT_RE.test(u));
+        if (images.length) {
+          const injectedImages = buildGallery(card, images);
+          if (injectedImages.length) console.info('image-fixer: injected', injectedImages.length, 'images for', card.getAttribute('data-id') || '(no id)');
+        }
+
+        // media (videos + socials)
+        const mediaFromScript = extractMediaFromScriptPayload(card);
+        const mediaFromDom = extractFromDOMForMedia(card);
+        const allVideos = Array.from(new Set([...(mediaFromScript.videos||[]), ...(mediaFromDom.videos||[])]).values()).filter(Boolean);
+        const allSocials = Array.from(new Set([...(mediaFromScript.socials||[]), ...(mediaFromDom.socials||[])]).values()).filter(Boolean);
+
+        if (allVideos.length) {
+          const injected = injectVideos(card, allVideos);
+          if (injected.length) console.info('media-injector: injected', injected.length, 'videos for', card.getAttribute('data-id') || '(no id)');
+        }
+
+        // if client detected socials but server didn't render, append a social-links bar (non-destructive)
+        if (allSocials.length) {
+          const containerExists = card.querySelector('.social-links');
+          if (!containerExists) {
+            const socialWrap = document.createElement('div');
+            socialWrap.className = 'social-links';
+            allSocials.forEach(u => {
+              try {
+                const a = document.createElement('a');
+                a.href = u;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = (u.includes('twitter.com') || u.includes('x.com')) ? 'X/Twitter' : (u.includes('instagram.com') ? 'Instagram' : (u.includes('facebook.com') ? 'Facebook' : (u.includes('tiktok.com') ? 'TikTok' : 'Link')));
+                socialWrap.appendChild(a);
+              } catch (e){}
+            });
+            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+            evidenceContainer.appendChild(socialWrap);
+          }
+        }
+
+      } catch (e) {
+        console.error('image-fixer: error processing card', card, e);
+      }
+    });
+
+    // wire copy buttons after injection
+    wireCopyButtons(document);
+  }
+
+  /* Lightbox wiring — reuse your existing DOM elements for images */
+  const lightbox = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightbox-img');
+  const lbCaption = document.getElementById('lightbox-caption');
+  const btnPrev = document.querySelector('.lightbox-arrow.left');
+  const btnNext = document.querySelector('.lightbox-arrow.right');
+  const btnClose = document.querySelector('.lightbox-close');
+
+  let currentGallery = [];
+  let currentIndex = 0;
+
+  function showLightbox(gallery, index) {
+    if (!gallery || !gallery.length) return;
+    currentGallery = gallery.slice();
+    currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbImg) lbImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+    if (lbCaption) lbCaption.textContent = lbImg.alt || '';
+    if (lightbox) { lightbox.classList.add('visible'); lightbox.setAttribute('aria-hidden', 'false'); }
+    if (btnPrev && btnNext) {
+      if (currentGallery.length > 1) { btnPrev.style.display = 'flex'; btnNext.style.display = 'flex'; } else { btnPrev.style.display='none'; btnNext.style.display='none'; }
+    }
+  }
+  function hideLightbox() {
+    if (!lightbox) return;
+    lightbox.classList.remove('visible');
+    lightbox.setAttribute('aria-hidden','true');
+    if (lbImg) lbImg.src = '';
+    currentGallery = [];
+    currentIndex = 0;
+  }
+  function showPrev() {
+    if (!currentGallery.length) return;
+    currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+  }
+  function showNext() {
+    if (!currentGallery.length) return;
+    currentIndex = (currentIndex + 1) % currentGallery.length;
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+  }
+
+  if (btnPrev) btnPrev.addEventListener('click', showPrev);
+  if (btnNext) btnNext.addEventListener('click', showNext);
+  if (btnClose) btnClose.addEventListener('click', hideLightbox);
+  if (lightbox) lightbox.addEventListener('click', function (ev) { if (ev.target === lightbox) hideLightbox(); });
+  document.addEventListener('keydown', function (ev) {
+    if (!lightbox || !lightbox.classList.contains('visible')) return;
+    if (ev.key === 'Escape') hideLightbox();
+    if (ev.key === 'ArrowLeft') showPrev();
+    if (ev.key === 'ArrowRight') showNext();
+  });
+
+  /* delegated click handler for thumbs / evidence-image / evidence-link */
+  function delegatedClickHandler(ev) {
+    const t = ev.target;
+    if (!t || !t.classList) return;
+    if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
+
+    // if it's an evidence link, try to show image gallery first
+    if (t.classList.contains('evidence-link')) {
+      ev.preventDefault();
+      const card = t.closest('.report-card');
+      if (!card) { window.open(t.href, '_blank'); return; }
+
+      let gallery = extractImagesFromScriptPayload(card);
+      if (!gallery.length) {
+        // fallback to searching inside card DOM
+        const domImgs = Array.from(card.querySelectorAll('img')).map(i => i.src).filter(Boolean);
+        gallery = domImgs;
+      }
+      if (!gallery.length) { window.open(t.href, '_blank'); return; }
+      buildGallery(card, gallery);
+      const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+      showLightbox(imgs.length ? imgs : gallery, 0);
+      return;
+    }
+
+    // thumb or evidence-image clicked
+    const card = t.closest('.report-card');
+    if (!card) return;
+    const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+    if (imgs.length) {
+      let idx = imgs.indexOf(t.src || t.getAttribute('src') || '');
+      if (idx === -1) idx = 0;
+      showLightbox(imgs, idx);
+      return;
+    }
+    // fallback to script payload
+    const payload = extractImagesFromScriptPayload(card);
+    if (payload.length) showLightbox(payload, 0);
+  }
+  try { document.removeEventListener('click', document.__image_fixer_click); } catch (e) {}
+  document.__image_fixer_click = delegatedClickHandler;
+  document.addEventListener('click', document.__image_fixer_click);
+
+  /* Debounced runner for MutationObserver */
+  let debounceTimer = null;
+  function scheduleRun() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { try { gatherAndInjectAll(); } catch(e){console.error(e);} }, DEBOUNCE_MS);
+  }
+
+  /* MutationObserver */
+  function startObserver() {
+    const target = document.querySelector('.reports-grid') || document.body;
+    if (!target) return;
+    const observer = new MutationObserver(mutations => {
+      let relevant = false;
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length) {
+          for (const n of m.addedNodes) {
+            if (n.nodeType === 1 && (n.matches && n.matches('.report-card') || n.querySelector && n.querySelector('.report-card'))) {
+              relevant = true; break;
+            }
+          }
+        }
+        if (m.type === 'attributes' && (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
+        if (relevant) break;
+      }
+      if (relevant) scheduleRun();
+    });
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class', 'src'] });
+    window.__image_fixer_observer = observer;
+  }
+
+  /* initial startup: try to run a few times */
+  function startup() {
+    gatherAndInjectAll();
+    let tries = 0;
+    const intId = setInterval(() => {
+      tries++;
+      gatherAndInjectAll();
+      if (tries > 6) clearInterval(intId);
+    }, 400);
+    startObserver();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startup);
+  } else {
+    setTimeout(startup, 10);
+  }
+
+  window.__image_fixer = {
+    run: gatherAndInjectAll,
+    schedule: scheduleRun,
+    startObserver,
+  };
+
+  console.info('image-fixer + media-injector: bootstrap installed (dedupe fixes applied)');
+
+})();
+</script>
+
+<!-- Your main app script (keeps existing behavior) -->
+<script src="/static/script.js"></script>
+
+</body>
+</html>
+
+                                    
