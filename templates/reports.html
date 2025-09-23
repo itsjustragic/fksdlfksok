@@ -346,6 +346,12 @@
     return u.trim();
   }
 
+  // safe CSS.escape fallback
+  function cssEscape(s) {
+    if (window.CSS && CSS.escape) return CSS.escape(s);
+    return ('' + s).replace(/([^\w-])/g, '\\$1');
+  }
+
   /* Read images from data- attribute or script payload (existing logic) */
   function extractImagesFromScriptPayload(card) {
     try {
@@ -356,7 +362,7 @@
           if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
           if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean).filter(u => IMG_EXT_RE.test(u));
         } catch (e) {
-          console.warn('image-fixer: failed to parse data-images for card', card, e);
+          // fallthrough
         }
       }
       const script = card.querySelector('script[type="application/json"][data-report-images-for]');
@@ -377,7 +383,7 @@
     return [];
   }
 
-  /* NEW: extract videos & socials from the media payload script (if present) or fallback to scanning */
+  /* Extract videos & socials from the media payload script (if present) or fallback to scanning */
   function extractMediaFromScriptPayload(card) {
     const script = card.querySelector('script[type="application/json"][data-report-media-for]');
     if (!script) return { videos: [], socials: [] };
@@ -396,11 +402,9 @@
       if (typeof obj.other_socials === 'string') obj.other_socials.split(/[\r\n,]+/).forEach(u => { if (u) socials.push(normalizeUrl(u)); });
       return { videos: videos.filter(Boolean), socials: socials.filter(Boolean) };
     } catch (e) {
-      // fallback: find video tokens and http tokens
       const txt = script.textContent || '';
       const foundVideos = (txt.match(HTTP_VIDEO_TOKEN_RE) || []).map(normalizeUrl);
       const httpTokens = (txt.match(/\bhttps?:\/\/[^\s'"]+/gi) || []).map(normalizeUrl);
-      // treat non-image/video http tokens as socials
       const socials = httpTokens.filter(t => !IMG_EXT_RE.test(t) && !VIDEO_EXT_RE.test(t));
       return { videos: Array.from(new Set(foundVideos)), socials: Array.from(new Set(socials)) };
     }
@@ -436,30 +440,36 @@
     return g;
   }
 
-  function injectImages(card, urls) {
+  // Build gallery but avoid duplicates using data-src
+  function buildGallery(card, urls) {
     if (!urls || !urls.length) return [];
     const gallery = ensureGallery(card);
-    const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i => i.src));
+    const existing = new Set(Array.from(gallery.querySelectorAll('img[data-src]')).map(i => normalizeUrl(i.getAttribute('data-src'))));
     const injected = [];
     urls.forEach(u => {
       if (!u) return;
       const n = normalizeUrl(u);
       if (!IMG_EXT_RE.test(n)) return;
       if (existing.has(n)) return;
-      const img = document.createElement('img');
-      img.className = 'thumb';
-      img.loading = 'lazy';
-      img.alt = 'Additional evidence';
-      img.src = n;
-      img.setAttribute('data-auto-injected', '1');
-      gallery.appendChild(img);
-      injected.push(n);
-      existing.add(n);
+      try {
+        const img = document.createElement('img');
+        img.src = n;
+        img.alt = 'Additional evidence';
+        img.loading = 'lazy';
+        img.className = 'thumb';
+        img.setAttribute('data-auto-injected', '1');
+        img.setAttribute('data-src', n);
+        gallery.appendChild(img);
+        injected.push(n);
+        existing.add(n);
+      } catch (e) {
+        console.warn('image-fixer: failed to create img for', n, e);
+      }
     });
     return injected;
   }
 
-  /* NEW: inject video elements / links and copy buttons */
+  /* NEW: inject video elements / links and copy buttons (fixed to avoid duplicates) */
   function ensureVideoContainer(card) {
     let cont = card.querySelector('.evidence-videos');
     if (!cont) {
@@ -474,21 +484,28 @@
   function injectVideos(card, urls) {
     if (!urls || !urls.length) return [];
     const cont = ensureVideoContainer(card);
-    const existing = new Set(Array.from(cont.querySelectorAll('a.evidence-link, video')).map(el => {
-      if (el.tagName && el.tagName.toLowerCase() === 'video') {
-        const s = el.querySelector('source');
-        return s ? s.src : (el.currentSrc || '');
-      }
-      return el.href || '';
-    }).filter(Boolean));
+
+    // Build set of already-present data-src (reliable even across runs)
+    const alreadyPresent = new Set();
+    Array.from(cont.querySelectorAll('.video-item[data-src]')).forEach(el => {
+      alreadyPresent.add(normalizeUrl(el.getAttribute('data-src')));
+    });
+    // Also include existing <video> <source> or links (older markup)
+    Array.from(cont.querySelectorAll('video source')).forEach(s => { if (s.src) alreadyPresent.add(normalizeUrl(s.src)); });
+    Array.from(cont.querySelectorAll('a.evidence-link')).forEach(a => { if (a.href) alreadyPresent.add(normalizeUrl(a.href)); });
+
     const injected = [];
-    urls.forEach(u => {
-      if (!u) return;
-      const n = normalizeUrl(u);
-      if (existing.has(n)) return;
+    // normalize+dedupe the incoming list
+    const uniq = Array.from(new Set(urls.map(normalizeUrl).filter(Boolean)));
+
+    uniq.forEach(n => {
+      if (!n) return;
+      if (alreadyPresent.has(n)) return; // skip if already there
       try {
         const wrapper = document.createElement('div');
         wrapper.className = 'video-item';
+        wrapper.setAttribute('data-src', n); // mark the wrapper so future runs see it
+
         const vcandidate = n.split('?')[0].split('#')[0].trim();
         const ext = (vcandidate.includes('.') ? vcandidate.split('.').pop().toLowerCase() : '');
         if (VIDEO_EXT_RE.test(n) && ['mp4','webm','ogg','mov'].indexOf(ext) >= 0) {
@@ -501,6 +518,7 @@
           source.type = 'video/' + (ext === 'mp4' ? 'mp4' : (ext === 'webm' ? 'webm' : 'ogg'));
           video.appendChild(source);
           wrapper.appendChild(video);
+
           const actions = document.createElement('div');
           actions.className = 'video-actions';
           const open = document.createElement('a');
@@ -517,11 +535,11 @@
           actions.appendChild(open);
           actions.appendChild(copyBtn);
           wrapper.appendChild(actions);
-          cont.appendChild(wrapper);
-          injected.push(n);
+
         } else {
-          const linkWrapper = document.createElement('div');
-          linkWrapper.className = 'video-item';
+          // fallback: link + copy
+          const actions = document.createElement('div');
+          actions.className = 'video-actions';
           const open = document.createElement('a');
           open.className = 'evidence-link';
           open.href = n;
@@ -533,18 +551,21 @@
           copyBtn.className = 'copy-button';
           copyBtn.setAttribute('data-copy-url', n);
           copyBtn.textContent = 'Copy URL';
-          const actions = document.createElement('div');
-          actions.className = 'video-actions';
           actions.appendChild(open);
           actions.appendChild(copyBtn);
-          linkWrapper.appendChild(actions);
-          cont.appendChild(linkWrapper);
-          injected.push(n);
+          wrapper.appendChild(actions);
         }
+
+        cont.appendChild(wrapper);
+
+        // mark as present to prevent duplicates within same run or future runs
+        alreadyPresent.add(n);
+        injected.push(n);
       } catch (e) {
         console.warn('injectVideos: error for', n, e);
       }
     });
+
     return injected;
   }
 
@@ -596,21 +617,32 @@
     });
   }
 
-  /* main gather/inject function (images + videos + socials) */
+  /* main gather/inject function */
   function gatherAndInjectAll() {
     const cards = Array.from(document.querySelectorAll('.report-card'));
     if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
     cards.forEach(card => {
       try {
-        // images injection (skip card if images already present to avoid duplicates)
-        const alreadyHasImageOrThumb = card.querySelector('.evidence-gallery') || card.querySelector('.thumb');
+        // images
         const imgsFromScript = extractImagesFromScriptPayload(card);
-        const imgsFromDom = (function(){ const found = new Set(); Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); }); Array.from(card.querySelectorAll('a[href]')).forEach(a => { const href = a.getAttribute('href')||''; if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href)); try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e){} }); const text = card.innerText || card.textContent || ''; let match; while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) { found.add(normalizeUrl(match[0])); } return Array.from(found); })();
+        const imgsFromDom = (function(){
+          const found = new Set();
+          Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+          Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+            const href = a.getAttribute('href') || '';
+            if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
+            try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e) {}
+          });
+          const text = card.innerText || card.textContent || '';
+          let match;
+          while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) found.add(normalizeUrl(match[0]));
+          return Array.from(found);
+        })();
         const combinedImages = Array.from(new Set(Array.prototype.concat(imgsFromScript, imgsFromDom)));
         const images = combinedImages.filter(u => IMG_EXT_RE.test(u));
-        if (!alreadyHasImageOrThumb && images.length) {
-          const injected = injectImages(card, images);
-          if (injected.length) console.info('image-fixer: injected', injected.length, 'images for', card.getAttribute('data-id') || '(no id)');
+        if (images.length) {
+          const injectedImages = buildGallery(card, images);
+          if (injectedImages.length) console.info('image-fixer: injected', injectedImages.length, 'images for', card.getAttribute('data-id') || '(no id)');
         }
 
         // media (videos + socials)
@@ -644,6 +676,7 @@
             evidenceContainer.appendChild(socialWrap);
           }
         }
+
       } catch (e) {
         console.error('image-fixer: error processing card', card, e);
       }
@@ -663,6 +696,7 @@
 
   let currentGallery = [];
   let currentIndex = 0;
+
   function showLightbox(gallery, index) {
     if (!gallery || !gallery.length) return;
     currentGallery = gallery.slice();
@@ -683,8 +717,18 @@
     currentGallery = [];
     currentIndex = 0;
   }
-  function showPrev() { if (!currentGallery.length) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; if (lbImg) lbImg.src=currentGallery[currentIndex]; if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
-  function showNext() { if (!currentGallery.length) return; currentIndex=(currentIndex+1)%currentGallery.length; if (lbImg) lbImg.src=currentGallery[currentIndex]; if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+  function showPrev() {
+    if (!currentGallery.length) return;
+    currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+  }
+  function showNext() {
+    if (!currentGallery.length) return;
+    currentIndex = (currentIndex + 1) % currentGallery.length;
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+  }
 
   if (btnPrev) btnPrev.addEventListener('click', showPrev);
   if (btnNext) btnNext.addEventListener('click', showNext);
@@ -716,7 +760,7 @@
         gallery = domImgs;
       }
       if (!gallery.length) { window.open(t.href, '_blank'); return; }
-      injectImages(card, gallery);
+      buildGallery(card, gallery);
       const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
       showLightbox(imgs.length ? imgs : gallery, 0);
       return;
@@ -736,7 +780,6 @@
     const payload = extractImagesFromScriptPayload(card);
     if (payload.length) showLightbox(payload, 0);
   }
-  // ensure only one delegated handler
   try { document.removeEventListener('click', document.__image_fixer_click); } catch (e) {}
   document.__image_fixer_click = delegatedClickHandler;
   document.addEventListener('click', document.__image_fixer_click);
@@ -748,7 +791,7 @@
     debounceTimer = setTimeout(() => { try { gatherAndInjectAll(); } catch(e){console.error(e);} }, DEBOUNCE_MS);
   }
 
-  /* MutationObserver: watch for added/changed report cards (subtree) */
+  /* MutationObserver */
   function startObserver() {
     const target = document.querySelector('.reports-grid') || document.body;
     if (!target) return;
@@ -771,17 +814,15 @@
     window.__image_fixer_observer = observer;
   }
 
-  /* initial startup: try to run a few times (polling fallback) to survive race conditions */
+  /* initial startup: try to run a few times */
   function startup() {
     gatherAndInjectAll();
-    // try a couple more times in case something re-renders shortly after load
     let tries = 0;
     const intId = setInterval(() => {
       tries++;
       gatherAndInjectAll();
       if (tries > 6) clearInterval(intId);
     }, 400);
-    // start observer to catch later mutations
     startObserver();
   }
 
@@ -791,17 +832,13 @@
     setTimeout(startup, 10);
   }
 
-  /* Expose manual hooks for debugging in console */
   window.__image_fixer = {
     run: gatherAndInjectAll,
     schedule: scheduleRun,
     startObserver,
-    normalizeUrl,
-    extractFromDOM: function(card){ return Array.isArray(card) ? [] : (function(){return [];})(); },
-    extractFromScriptPayload: function(card){ return extractImagesFromScriptPayload(card); }
   };
 
-  console.info('image-fixer + media-injector: bootstrap installed');
+  console.info('image-fixer + media-injector: bootstrap installed (dedupe fixes applied)');
 
 })();
 </script>
@@ -811,3 +848,4 @@
 
 </body>
 </html>
+
