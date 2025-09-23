@@ -86,7 +86,8 @@
                         <p class="small"><strong>Their Emails:</strong> {{ report.employer_email or 'N/A' }}</p>
                         <p class="desc">{{ report.description }}</p>
 
-                        <div class="report-evidence">
+                        <!-- ADDED: data-images attribute so client can always read server-provided images -->
+                        <div class="report-evidence" data-images='{{ (images_only or report.image_urls or report.image_list or report.images or report.imageUrls or []) | tojson | safe }}'>
                             {# server-side attempt to render evidence_url if image #}
                             {% if report.evidence_url %}
                                 {% set ev2 = report.evidence_url %}
@@ -226,19 +227,44 @@
     return u.trim();
   }
 
+  // Prefer data-images attribute on the card's .report-evidence element,
+  // then fallback to the existing <script type="application/json"> payload,
+  // then fallback to scanning text for http image tokens.
   function extractFromScriptPayload(card) {
-    const script = card.querySelector('script[type="application/json"][data-report-images-for]');
-    if (!script) return [];
-    const txt = script.textContent || '[]';
     try {
-      const parsed = JSON.parse(txt);
-      if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
-      if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
-      return [];
+      // 1) data-images attribute (preferred)
+      const evidenceEl = card.querySelector('.report-evidence');
+      if (evidenceEl && evidenceEl.dataset && evidenceEl.dataset.images) {
+        try {
+          const parsed = JSON.parse(evidenceEl.dataset.images);
+          if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
+          if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+        } catch (e) {
+          // fall through to next method
+          console.warn('image-fixer: failed to parse data-images for card', card, e);
+        }
+      }
+
+      // 2) <script type="application/json" data-report-images-for="ID">
+      const script = card.querySelector('script[type="application/json"][data-report-images-for]') || (function(){
+        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,'')) || '';
+        return id ? document.querySelector('script[type="application/json"][data-report-images-for="'+id+'"]') : null;
+      })();
+      if (!script) return [];
+      const txt = script.textContent || '[]';
+      try {
+        const parsed = JSON.parse(txt);
+        if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
+        if (typeof parsed === 'string') return parsed.split(/[\r\n,]+/).map(normalizeUrl).filter(Boolean);
+      } catch (e) {
+        const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
+        return found.map(normalizeUrl);
+      }
     } catch (e) {
-      const found = txt.match(HTTP_IMG_TOKEN_RE) || [];
-      return found.map(normalizeUrl);
+      console.error('image-fixer: extractFromScriptPayload error', e);
+      return [];
     }
+    return [];
   }
 
   function extractFromDOM(card) {
@@ -478,5 +504,3 @@
 
 </body>
 </html>
-
-
