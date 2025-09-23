@@ -645,3 +645,87 @@ body {
 }
 
 /* End of appended filter styles */
+
+/* ====== APPENDED: Filter / Search UI styles (matches script.js IDs) ====== */
+
+#reports-filter-panel {
+    max-width: var(--grid-max-width, 1200px);
+    margin: 12px auto;
+    padding: 10px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    border: 1px solid rgba(255,255,255,0.02);
+}
+
+/* Inputs */
+#reports-search-input,
+#reports-state-select {
+    min-width: 180px;
+    max-width: 520px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: #0b0b0c;
+    color: #fff;
+    font-size: 0.95rem;
+    outline: none;
+    box-sizing: border-box;
+}
+
+/* Make select slightly narrower by default */
+#reports-state-select { min-width: 180px; max-width: 260px; }
+
+/* Clear button */
+#reports-filter-clear {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: none;
+    background: var(--grid-accent-blue, #003087);
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+#reports-filter-clear:hover { filter: brightness(0.95); }
+
+/* No-results message */
+#reports-no-results {
+    max-width: var(--grid-max-width, 1200px);
+    margin: 8px auto 0;
+    padding: 8px 16px;
+    border-radius: 8px;
+    background: rgba(191,10,48,0.06); /* subtle red tint */
+    color: #f8bdbd;
+    font-weight: 600;
+    display: none; /* toggled by JS */
+}
+
+/* Accessibility: visible focus rings */
+#reports-search-input:focus,
+#reports-state-select:focus,
+#reports-filter-clear:focus {
+    box-shadow: 0 0 0 3px rgba(0,48,135,0.15);
+    outline: none;
+}
+
+/* Responsive tweaks */
+@media (max-width: 720px) {
+    #reports-filter-panel {
+        padding: 8px 12px;
+        gap: 8px;
+    }
+    #reports-search-input { min-width: 140px; max-width: 100%; flex: 1 1 auto; }
+    #reports-state-select { min-width: 120px; max-width: 220px; }
+    #reports-filter-clear { padding: 8px 10px; }
+}
+
+/* Small visual harmony: ensure the inserted controls don't collide with footer */
+@media (max-height: 600px) {
+    #reports-filter-panel { margin-bottom: 14px; }
+}
