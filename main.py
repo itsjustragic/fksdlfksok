@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 import uuid
 import uvicorn
 import httpx
@@ -38,6 +38,66 @@ pending_reports: List[Dict] = []
 approved_reports: List[Dict] = []
 
 SERVICE_URL = "https://charliesmurders.onrender.com"
+
+# ---------------------------
+# State parsing helper
+# ---------------------------
+# Returns (abbr, full_name) or (None, None) if not found.
+def parse_state_from_location(loc: str) -> Tuple[Optional[str], Optional[str]]:
+    if not loc:
+        return None, None
+
+    # canonical mapping: abbr -> full
+    STATES_MAP = {
+        'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+        'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+        'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+        'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+        'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+        'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+        'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+        'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+        'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+        'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+        'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+        'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+        'WI': 'Wisconsin', 'WY': 'Wyoming'
+    }
+
+    text = re.sub(r'\s+', ' ', (loc or '')).strip()
+    low = text.lower()
+
+    # 1) Full-name match (e.g., "Utah", "new york")
+    for abbr, fullname in STATES_MAP.items():
+        if fullname.lower() in low:
+            return abbr, fullname
+
+    # 2) Parentheses-style "City, ST (AK)" or "City, State (AK)"
+    m = re.search(r'\(([A-Za-z]{2})\)', text)
+    if m:
+        maybe = m.group(1).upper()
+        if maybe in STATES_MAP:
+            return maybe, STATES_MAP[maybe]
+
+    # 3) Two-letter token in common formats:
+    #    - trailing "City, ST"  - match last token if it's 2 letters
+    #    - anywhere in line as isolated token
+    parts = re.split(r'[,\s]+', text)
+    for p in reversed(parts):
+        if re.fullmatch(r'[A-Za-z]{2}', p):
+            token = p.upper()
+            if token in STATES_MAP:
+                return token, STATES_MAP[token]
+
+    # 4) final defensive check: look for any 2-letter token anywhere as a word boundary
+    for abbr in STATES_MAP.keys():
+        if re.search(r'\b' + re.escape(abbr) + r'\b', text, flags=re.I):
+            return abbr, STATES_MAP[abbr]
+
+    return None, None
+
+# ---------------------------
+
 
 @app.get("/ping")
 async def ping(request: Request):
@@ -140,6 +200,18 @@ async def schedule_ping_task():
 @app.post("/submit_report")
 def submit_report(report: Dict = Body(...)):
     report['id'] = str(uuid.uuid4())
+
+    # Derive canonical state fields if possible and store them on the report object.
+    try:
+        st_abbr, st_name = parse_state_from_location(report.get('location') or '')
+        if st_abbr:
+            # only set if not already present, but overwrite if existing value is falsy
+            report['state'] = report.get('state') or st_abbr
+            report['state_full'] = report.get('state_full') or st_name
+    except Exception:
+        # don't fail submission for parsing failures
+        pass
+
     pending_reports.append(report)
     return {"message": "Report submitted for review"}
 
@@ -168,6 +240,17 @@ def approve(request: Request, report_id: str):
 
             if isinstance(approved.get("email"), str) and approved.get("email").lower().startswith("submitter:"):
                 approved.pop("email", None)
+
+            # Ensure canonical state fields exist (re-derive if missing)
+            try:
+                st_abbr, st_name = parse_state_from_location(approved.get('location') or '')
+                if st_abbr and not approved.get('state'):
+                    approved['state'] = st_abbr
+                if st_name and not approved.get('state_full'):
+                    approved['state_full'] = st_name
+            except Exception:
+                # ignore parse failures
+                pass
 
             # -------------------------
             approved_reports.append(approved)
