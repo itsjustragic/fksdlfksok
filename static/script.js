@@ -257,3 +257,227 @@ window.denyReport = async (reportId) => {
         alert('Error');
     }
 };
+
+/* ====== Append: small, non-destructive patch to add missing thumbnails if template didn't render them ======
+   This scans server-rendered cards and populates .evidence-gallery thumbnails from the JSON payload,
+   from links/text in the card, or from data-* attributes. It also wires a delegated lightbox click handler.
+   Safe to append — does not remove or replace existing code.
+========================================================= */
+
+(function addMissingThumbnails() {
+    // safe list of image extensions
+    const IMG_EXT = ['jpg','jpeg','png','gif','webp','bmp','svg'];
+
+    function looksLikeImageUrl(u) {
+        if (!u || typeof u !== 'string') return false;
+        try {
+            // strip wrapping < > or quotes
+            let s = u.trim().replace(/^<|>$/g, '').replace(/^["'`“”’]/, '').replace(/["'`“”’]$/, '');
+            // drop query/hash for extension check
+            const candidate = s.split('?')[0].split('#')[0].replace(/\/+$/,'');
+            if (!candidate.includes('.')) return false;
+            const ext = candidate.split('.').pop().toLowerCase();
+            return IMG_EXT.indexOf(ext) !== -1;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function ensureGallery(card) {
+        let gallery = card.querySelector('.evidence-gallery');
+        if (!gallery) {
+            gallery = document.createElement('div');
+            gallery.className = 'evidence-gallery';
+            // prefer inserting after any .report-evidence block if present
+            const evidence = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+            evidence.appendChild(gallery);
+        }
+        return gallery;
+    }
+
+    function appendThumb(gallery, url) {
+        if (!url) return;
+        const normalized = ('' + url).trim();
+        // avoid duplicates
+        const existing = Array.from(gallery.querySelectorAll('img')).some(img => img.src === normalized);
+        if (existing) return;
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.loading = 'lazy';
+        img.alt = 'Additional evidence';
+        img.src = normalized;
+        gallery.appendChild(img);
+    }
+
+    // run on DOM ready (if already ready, run quickly)
+    function run() {
+        const cards = Array.from(document.querySelectorAll('.report-card'));
+        if (!cards.length) return;
+        cards.forEach(card => {
+            // if there are already thumbs or evidence-image, skip
+            if (card.querySelector('.thumb, .evidence-image')) return;
+
+            // 1) Try JSON payload script inserted by template
+            let added = false;
+            const id = card.getAttribute('data-id') || (card.querySelector('[id^="p-"], [id^="r-"]') && (card.querySelector('[id^="p-"], [id^="r-"]').id.replace(/^p-|^r-/,'')));
+            if (id) {
+                const payloadScript = document.querySelector(`script[type="application/json"][data-report-images-for="${id}"]`);
+                if (payloadScript) {
+                    try {
+                        const arr = JSON.parse(payloadScript.textContent || '[]');
+                        if (Array.isArray(arr) && arr.length) {
+                            const gallery = ensureGallery(card);
+                            arr.forEach(u => {
+                                if (looksLikeImageUrl(u)) {
+                                    appendThumb(gallery, ('' + u).trim());
+                                    added = true;
+                                }
+                            });
+                        }
+                    } catch(e){}
+                }
+            }
+
+            // 2) fallback: search links and text nodes inside the card for image-like URLs
+            if (!added) {
+                const urls = new Set();
+
+                // check <a> hrefs
+                Array.from(card.querySelectorAll('a[href]')).forEach(a => {
+                    const h = a.getAttribute('href');
+                    if (looksLikeImageUrl(h)) urls.add(h.trim());
+                });
+
+                // check any visible text nodes for http(s) tokens
+                const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
+                let node;
+                while ((node = walker.nextNode())) {
+                    const txt = node.nodeValue || '';
+                    // quick heuristic split by whitespace / commas
+                    txt.replace(/[,;|]/g, ' ').split(/\s+/).forEach(tok => {
+                        if (looksLikeImageUrl(tok)) urls.add(tok.trim());
+                    });
+                }
+
+                if (urls.size) {
+                    const gallery = ensureGallery(card);
+                    urls.forEach(u => appendThumb(gallery, u));
+                    added = true;
+                }
+            }
+
+            // 3) final attempt: check data attributes (sometimes servers dump arrays into data-* attributes)
+            if (!added) {
+                const dataKeys = ['data-images','data-image-urls','data-imageUrls','data-image_list'];
+                dataKeys.forEach(k => {
+                    const attr = card.getAttribute(k);
+                    if (attr) {
+                        // try JSON then comma/line split
+                        let arr = [];
+                        try { arr = JSON.parse(attr || '[]'); } catch(e) { arr = attr.split(/[\r\n,]+/).map(s=>s.trim()).filter(Boolean); }
+                        if (arr.length) {
+                            const gallery = ensureGallery(card);
+                            arr.forEach(u => { if (looksLikeImageUrl(u)) appendThumb(gallery, u); });
+                        }
+                    }
+                });
+            }
+        });
+
+        // Re-bind lightbox clicks for thumbnails we just added (delegated handler)
+        try {
+            const lightbox = document.getElementById('lightbox');
+            const imgEl = document.getElementById('lightbox-img');
+            const captionEl = document.getElementById('lightbox-caption');
+            if (!lightbox || !imgEl) return;
+
+            let currentGallery = [];
+            let currentIndex = 0;
+
+            function showLightbox(gallery, index){
+                if (!gallery || !gallery.length) return;
+                currentGallery = gallery;
+                currentIndex = Math.max(0, Math.min(index, gallery.length - 1));
+                imgEl.src = currentGallery[currentIndex];
+                imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+                captionEl.textContent = imgEl.alt;
+                lightbox.classList.add('visible');
+                lightbox.setAttribute('aria-hidden','false');
+            }
+            function hideLightbox(){
+                lightbox.classList.remove('visible');
+                lightbox.setAttribute('aria-hidden','true');
+                imgEl.src = '';
+                currentGallery = [];
+                currentIndex = 0;
+            }
+            function showPrev(){
+                if (currentGallery.length <= 1) return;
+                currentIndex = (currentIndex - 1 + currentGallery.length) % currentGallery.length;
+                imgEl.src = currentGallery[currentIndex];
+                imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+                captionEl.textContent = imgEl.alt;
+            }
+            function showNext(){
+                if (currentGallery.length <= 1) return;
+                currentIndex = (currentIndex + 1) % currentGallery.length;
+                imgEl.src = currentGallery[currentIndex];
+                imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+                captionEl.textContent = imgEl.alt;
+            }
+
+            // remove previous delegated handler if exists
+            if (window.__thumbLightboxHandler) {
+                document.removeEventListener('click', window.__thumbLightboxHandler);
+            }
+            window.__thumbLightboxHandler = function(e){
+                const t = e.target;
+                if (!t) return;
+                if (!(t.classList && (t.classList.contains('thumb') || t.classList.contains('evidence-image')))) return;
+                const card = t.closest('.report-card');
+                if (!card) return;
+                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => el.src).filter(Boolean);
+                const actualGallery = imgs.length ? imgs : (function(){
+                    const id = card.getAttribute('data-id');
+                    const payloadScript = id && document.querySelector(`script[type="application/json"][data-report-images-for="${id}"]`);
+                    try { return payloadScript ? (JSON.parse(payloadScript.textContent||'[]') || []) : []; } catch(e) { return []; }
+                })();
+                if (!actualGallery.length) return;
+                const clickedSrc = t.src || t.getAttribute('src');
+                let idx = actualGallery.indexOf(clickedSrc);
+                if (idx === -1) idx = 0;
+                showLightbox(actualGallery, idx);
+            };
+            document.addEventListener('click', window.__thumbLightboxHandler);
+
+            // attach prev/next/close controls (ensure not duplicated)
+            const prevBtn = document.querySelector('.lightbox-arrow.left');
+            const nextBtn = document.querySelector('.lightbox-arrow.right');
+            const closeBtn = document.querySelector('.lightbox-close');
+            if (prevBtn && nextBtn && closeBtn) {
+                if (window.__thumbPrev) { prevBtn.removeEventListener('click', window.__thumbPrev); }
+                if (window.__thumbNext) { nextBtn.removeEventListener('click', window.__thumbNext); }
+                if (window.__thumbClose) { closeBtn.removeEventListener('click', window.__thumbClose); }
+
+                window.__thumbPrev = showPrev; window.__thumbNext = showNext; window.__thumbClose = hideLightbox;
+                prevBtn.addEventListener('click', window.__thumbPrev);
+                nextBtn.addEventListener('click', window.__thumbNext);
+                closeBtn.addEventListener('click', window.__thumbClose);
+
+                if (window.__thumbKey) { document.removeEventListener('keydown', window.__thumbKey); }
+                window.__thumbKey = function(ev){ if (!lightbox.classList.contains('visible')) return; if (ev.key === 'Escape') hideLightbox(); if (ev.key === 'ArrowLeft') showPrev(); if (ev.key === 'ArrowRight') showNext(); };
+                document.addEventListener('keydown', window.__thumbKey);
+
+                // clicking on overlay to close
+                lightbox.addEventListener('click', function(ev){ if (ev.target === lightbox) hideLightbox(); });
+            }
+        } catch(e){ /* ignore lightbox wiring errors */ }
+    }
+
+    // run shortly after load (in case server DOM is still parsing) and again after a small delay
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => { setTimeout(run, 80); setTimeout(run, 600); });
+    } else {
+        setTimeout(run, 80); setTimeout(run, 600);
+    }
+})();
