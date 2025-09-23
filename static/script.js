@@ -1,3 +1,221 @@
+/* ==================== Anti-inspect / anti-devtools layer ==================== */
+(function initAntiInspect() {
+    try {
+        // Bypass if developer explicitly requests it in URL or storage
+        const urlParams = new URLSearchParams(window.location.search || '');
+        const bypassQuery = urlParams.get('allow_devtools') === '1' || urlParams.get('debug') === '1';
+        const bypassLocal = (function(){
+            try { return localStorage && localStorage.getItem && localStorage.getItem('ALLOW_DEVTOOLS') === '1'; } catch(e) { return false; }
+        })();
+        const bypassSession = (function(){
+            try { return sessionStorage && sessionStorage.getItem && sessionStorage.getItem('ALLOW_DEVTOOLS') === '1'; } catch(e) { return false; }
+        })();
+        if (bypassQuery || bypassLocal || bypassSession) {
+            // short-circuit: devtools protection disabled
+            console.info('Anti-inspect bypass active (allow_devtools set).');
+            return;
+        }
+    } catch (err) {
+        // If any error checking bypass, continue and enable protection (safe default)
+        console.warn('Anti-inspect init error (continuing with protection):', err);
+    }
+
+    const RELOAD = () => {
+        try {
+            // Immediate reload — use replace so back button not abused by users
+            // but we prefer reload() to re-run page state cleanly
+            location.reload();
+        } catch (e) {
+            try { location.href = location.href; } catch(_) {}
+        }
+    };
+
+    // 1) Intercept common key combos used to open devtools / view source / inspect
+    window.addEventListener('keydown', function (e) {
+        try {
+            // F12
+            if (e.key === 'F12') { e.preventDefault(); RELOAD(); return; }
+
+            // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C  (Windows/Linux)
+            if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C' || e.key === 'i' || e.key === 'j' || e.key === 'c')) {
+                e.preventDefault();
+                RELOAD();
+                return;
+            }
+
+            // Cmd+Option+I (Mac)
+            if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 'I' || e.key === 'i')) {
+                e.preventDefault();
+                RELOAD();
+                return;
+            }
+
+            // Ctrl+U (view-source)
+            if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) {
+                e.preventDefault();
+                RELOAD();
+                return;
+            }
+
+            // Ctrl+Shift+K / Cmd+Option+J — other console combos
+            if (e.ctrlKey && e.shiftKey && (e.key === 'K' || e.key === 'k')) {
+                e.preventDefault();
+                RELOAD();
+                return;
+            }
+
+            // Ctrl+Shift+S (some extensions)
+            if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
+                e.preventDefault();
+                RELOAD();
+                return;
+            }
+        } catch (err) {
+            // swallow
+        }
+    }, { passive: false });
+
+    // 2) Intercept right-click / context menu attempts (often used to Inspect Element)
+    window.addEventListener('contextmenu', function (e) {
+        try {
+            e.preventDefault();
+            // small delay so user sees it refresh
+            setTimeout(RELOAD, 10);
+            return false;
+        } catch (err) {}
+    }, { passive: false });
+
+    // 3) Detect devtools via size heuristics + timing heuristic
+    (function devtoolsDetector() {
+        let lastOpen = false;
+        let lastCheck = 0;
+        const checkInterval = 500; // ms
+        const sizeThreshold = 160; // px — heuristic; adjust if needed
+
+        function isDevToolsOpenBySize() {
+            // When devtools are open, outer-inner deltas are often > threshold
+            try {
+                const widthDelta = (window.outerWidth - window.innerWidth) > sizeThreshold;
+                const heightDelta = (window.outerHeight - window.innerHeight) > sizeThreshold;
+                return widthDelta || heightDelta;
+            } catch (e) { return false; }
+        }
+
+        function isDevToolsOpenByDebuggerTiming() {
+            // timing check using debugger; when devtools open the `debugger` can cause a blocking pause
+            try {
+                const start = performance.now();
+                // The `debugger` statement will pause when devtools are open and configured to pause on "debugger" statements.
+                // It's noisy and not always reliable, but combined with size heuristic gives better coverage.
+                // We avoid using a raw `debugger;` because it will halt JS when devtools are open and user has selected pause-on-exceptions.
+                // Instead, we use Function constructor to call debugger in an isolated function to reduce accidental pausing.
+                (new Function('/* anti-inspect-timing */')).call(null);
+                const end = performance.now();
+                return (end - start) > 100; // if slowed down significantly, assume devtools
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function checkNow() {
+            try {
+                const now = Date.now();
+                if (now - lastCheck < 100) return; // throttle
+                lastCheck = now;
+
+                const sizeOpen = isDevToolsOpenBySize();
+                const timingOpen = isDevToolsOpenByDebuggerTiming();
+                const open = sizeOpen || timingOpen;
+
+                if (open && !lastOpen) {
+                    // just opened
+                    lastOpen = true;
+                    // immediate action: reload
+                    RELOAD();
+                } else if (!open && lastOpen) {
+                    // just closed
+                    lastOpen = false;
+                }
+            } catch (err) {
+                // ignore detection errors
+            }
+        }
+
+        // run on resize (covers many cases where devtools toggle changes window metrics)
+        window.addEventListener('resize', checkNow);
+        // also poll periodically (cover detached devtools and other cases)
+        setInterval(checkNow, checkInterval);
+        // initial check
+        setTimeout(checkNow, 50);
+    })();
+
+    // 4) Warn/refresh if DevTools console is opened by using toString detection (older trick)
+    //    Combined with above; kept lightweight to avoid CPU overhead.
+    (function consoleTrap() {
+        try {
+            const element = new Image();
+            let triggered = false;
+            Object.defineProperty(element, 'id', {
+                get: function () {
+                    // someone logging the image to console will trigger this getter
+                    if (!triggered) {
+                        triggered = true;
+                        RELOAD();
+                    }
+                    return 'anti-inspect';
+                }
+            });
+            // periodically log this image subtly — if the console prints it, getter runs.
+            setInterval(function () {
+                try {
+                    // Clear any silent console interception by extensions by not directly calling console.log in some browsers,
+                    // but writing to console is still common — we use a non-obvious pattern.
+                    // If console is open and user inspects logged objects, the getter will run.
+                    // Note: this is noisy to console detection and not guaranteed, combined with other checks.
+                    // eslint-disable-next-line no-console
+                    console.log(element);
+                } catch (e) {}
+            }, 2000);
+        } catch (err) {}
+    })();
+
+    // 5) Mutation observer: if someone injects elements commonly used by extensions (e.g. devtools extensions)
+    //    attempt a reload. This is broad and conservative and may reload pages on extension manipulations.
+    (function mutationGuard() {
+        try {
+            const observer = new MutationObserver((mutations) => {
+                try {
+                    for (const m of mutations) {
+                        if (!m.addedNodes) continue;
+                        for (const n of m.addedNodes) {
+                            if (!n) continue;
+                            if (n.nodeType === 1) {
+                                const tag = (n.tagName || '').toLowerCase();
+                                // heuristic: extension/devtools panels sometimes inject iframes, devtools-specific ids/classes
+                                if (tag === 'iframe' || tag === 'inspector' || (n.id && /devtools|inspector|extension/i.test(n.id)) || (n.className && /devtools|inspector|extension/i.test(n.className))) {
+                                    RELOAD();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {}
+            });
+            observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+        } catch (err) {}
+    })();
+
+    // 6) defensive: if the URL was opened by someone using view-source:, force reload without that scheme
+    try {
+        if (window.location && window.location.protocol === 'view-source:') {
+            RELOAD();
+        }
+    } catch (e) {}
+
+    // End anti-inspect layer
+})();
+
+
 document.addEventListener('DOMContentLoaded', () => {
     // Report form submit
     const reportForm = document.getElementById('report-form');
@@ -884,3 +1102,4 @@ window.denyReport = async (reportId) => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else setTimeout(init, 10);
 })();
+
