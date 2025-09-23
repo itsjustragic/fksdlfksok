@@ -1,5 +1,3 @@
-// static/script.js
-
 document.addEventListener('DOMContentLoaded', () => {
     // Report form submit
     const reportForm = document.getElementById('report-form');
@@ -520,4 +518,317 @@ window.denyReport = async (reportId) => {
     } else {
         setTimeout(run, 80); setTimeout(run, 600);
     }
+})();
+
+/* ====== Non-destructive: client-side search + 50-state dropdown + no-results behavior ======
+   Append this at the end of static/script.js.
+   It will:
+     - Insert a search UI above #reports-list (if present)
+     - Observe new .report-card nodes, extract useful fields, and set data-* attrs
+     - Provide filtering by state + free-text and show "No results" when appropriate
+   This code intentionally avoids changing or removing any of your existing logic.
+====================================================================== */
+
+(function() {
+    // list of 50 US states
+    const STATES = [
+        {name:'Alabama', abbr:'AL'},{name:'Alaska', abbr:'AK'},{name:'Arizona', abbr:'AZ'},{name:'Arkansas', abbr:'AR'},
+        {name:'California', abbr:'CA'},{name:'Colorado', abbr:'CO'},{name:'Connecticut', abbr:'CT'},{name:'Delaware', abbr:'DE'},
+        {name:'Florida', abbr:'FL'},{name:'Georgia', abbr:'GA'},{name:'Hawaii', abbr:'HI'},{name:'Idaho', abbr:'ID'},
+        {name:'Illinois', abbr:'IL'},{name:'Indiana', abbr:'IN'},{name:'Iowa', abbr:'IA'},{name:'Kansas', abbr:'KS'},
+        {name:'Kentucky', abbr:'KY'},{name:'Louisiana', abbr:'LA'},{name:'Maine', abbr:'ME'},{name:'Maryland', abbr:'MD'},
+        {name:'Massachusetts', abbr:'MA'},{name:'Michigan', abbr:'MI'},{name:'Minnesota', abbr:'MN'},{name:'Mississippi', abbr:'MS'},
+        {name:'Missouri', abbr:'MO'},{name:'Montana', abbr:'MT'},{name:'Nebraska', abbr:'NE'},{name:'Nevada', abbr:'NV'},
+        {name:'New Hampshire', abbr:'NH'},{name:'New Jersey', abbr:'NJ'},{name:'New Mexico', abbr:'NM'},{name:'New York', abbr:'NY'},
+        {name:'North Carolina', abbr:'NC'},{name:'North Dakota', abbr:'ND'},{name:'Ohio', abbr:'OH'},{name:'Oklahoma', abbr:'OK'},
+        {name:'Oregon', abbr:'OR'},{name:'Pennsylvania', abbr:'PA'},{name:'Rhode Island', abbr:'RI'},{name:'South Carolina', abbr:'SC'},
+        {name:'South Dakota', abbr:'SD'},{name:'Tennessee', abbr:'TN'},{name:'Texas', abbr:'TX'},{name:'Utah', abbr:'UT'},
+        {name:'Vermont', abbr:'VT'},{name:'Virginia', abbr:'VA'},{name:'Washington', abbr:'WA'},{name:'West Virginia', abbr:'WV'},
+        {name:'Wisconsin', abbr:'WI'},{name:'Wyoming', abbr:'WY'}
+    ];
+
+    // helper: normalize text
+    function norm(s) {
+        return (s || '').toString().trim().toLowerCase();
+    }
+
+    // parse state from a location string (e.g. "Houston, TX" or "Austin, Texas" or "Seattle, WA 98101")
+    function parseStateFromLocation(loc) {
+        if (!loc) return null;
+        const s = loc.replace(/\s+/g, ' ').trim();
+        const lower = s.toLowerCase();
+
+        // check full name first (e.g. "new york")
+        for (let st of STATES) {
+            if (lower.includes(st.name.toLowerCase())) return {abbr: st.abbr, name: st.name};
+        }
+
+        // check for common patterns with 2-letter codes (", TX" or " TX " or "TX" at end)
+        // create word-boundary regex for each abbr
+        for (let st of STATES) {
+            const ab = st.abbr.toLowerCase();
+            // match like ", tx" or " tx " or " tx$" or "(tx)"
+            const re = new RegExp('\\b' + ab + '\\b', 'i');
+            if (re.test(s)) return {abbr: st.abbr, name: st.name};
+        }
+        return null;
+    }
+
+    // create filter UI (only if reportsList exists)
+    function insertFilterUI(reportsList) {
+        if (!reportsList) return null;
+        // guard: don't insert twice
+        if (document.getElementById('reports-filter-panel')) return document.getElementById('reports-filter-panel');
+
+        const container = document.createElement('div');
+        container.id = 'reports-filter-panel';
+        container.style.display = 'flex';
+        container.style.gap = '8px';
+        container.style.alignItems = 'center';
+        container.style.margin = '12px 0';
+        container.style.flexWrap = 'wrap';
+
+        const searchInput = document.createElement('input');
+        searchInput.type = 'search';
+        searchInput.id = 'reports-search-input';
+        searchInput.placeholder = 'Search name, employer, location, description...';
+        searchInput.style.flex = '1 1 320px';
+        searchInput.style.padding = '8px';
+
+        const stateSelect = document.createElement('select');
+        stateSelect.id = 'reports-state-select';
+        stateSelect.style.padding = '8px';
+        stateSelect.title = 'Filter by U.S. state';
+
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All states';
+        stateSelect.appendChild(allOpt);
+
+        STATES.forEach(st => {
+            const o = document.createElement('option');
+            o.value = st.abbr;
+            o.textContent = st.name;
+            stateSelect.appendChild(o);
+        });
+
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.id = 'reports-filter-clear';
+        clearBtn.textContent = 'Clear';
+        clearBtn.style.padding = '8px';
+
+        const noResults = document.createElement('div');
+        noResults.id = 'reports-no-results';
+        noResults.style.display = 'none';
+        noResults.style.marginTop = '10px';
+        noResults.style.fontWeight = '600';
+        noResults.textContent = 'No results found.';
+
+        container.appendChild(searchInput);
+        container.appendChild(stateSelect);
+        container.appendChild(clearBtn);
+
+        // put panel before reportsList
+        reportsList.parentNode.insertBefore(container, reportsList);
+        reportsList.parentNode.insertBefore(noResults, reportsList.nextSibling);
+
+        // events
+        const debounced = debounce(filterReports, 180);
+        searchInput.addEventListener('input', debounced);
+        stateSelect.addEventListener('change', filterReports);
+        clearBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            stateSelect.value = '';
+            filterReports();
+        });
+
+        return container;
+    }
+
+    // debounce helper
+    function debounce(fn, wait) {
+        let t;
+        return (...args) => {
+            clearTimeout(t);
+            t = setTimeout(() => fn(...args), wait);
+        };
+    }
+
+    // filter logic: show/hide .report-card
+    function filterReports() {
+        const reportsList = document.getElementById('reports-list');
+        if (!reportsList) return;
+        const searchInput = document.getElementById('reports-search-input');
+        const stateSelect = document.getElementById('reports-state-select');
+        const noResults = document.getElementById('reports-no-results');
+
+        const q = norm(searchInput && searchInput.value);
+        const state = stateSelect && stateSelect.value; // abbr or ''
+
+        const cards = Array.from(reportsList.querySelectorAll('.report-card'));
+        let visible = 0;
+
+        cards.forEach(card => {
+            let show = true;
+
+            // state filtering: check data-state attr or try parse fallback using location text
+            const cardState = (card.getAttribute('data-state') || '').toUpperCase();
+            if (state) {
+                if (cardState && cardState.toUpperCase() === state.toUpperCase()) {
+                    show = show && true;
+                } else {
+                    show = false;
+                }
+            }
+
+            // text search: check fullname, employer, location, description, and card text fallback
+            if (q) {
+                const fields = [
+                    card.getAttribute('data-fullname') || '',
+                    card.getAttribute('data-employer') || '',
+                    card.getAttribute('data-location') || '',
+                    card.getAttribute('data-description') || '',
+                    card.textContent || ''
+                ].map(norm).join(' ');
+                if (!fields.includes(q)) show = false;
+            }
+
+            if (show) {
+                card.style.display = '';
+                visible++;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        if (noResults) {
+            noResults.style.display = visible === 0 ? 'block' : 'none';
+        }
+    }
+
+    // Called for newly-added .report-card nodes: extract fields and set data-* attributes
+    function annotateCard(card) {
+        try {
+            if (!card || !card.classList) return;
+            if (!card.classList.contains('report-card')) return;
+
+            // avoid double-annotating
+            if (card.getAttribute('data-annotated') === '1') return;
+
+            // find h2 for name
+            const h2 = card.querySelector('h2');
+            const fullName = h2 ? h2.textContent.trim() : '';
+
+            // find first <p> that looks like "location - occupation" or contains comma
+            const pEls = Array.from(card.querySelectorAll('p'));
+            let location = '';
+            let occupation = '';
+            if (pEls.length) {
+                // try to use the first paragraph; if it contains " - " split
+                const first = pEls[0].textContent.trim();
+                if (first.includes(' - ')) {
+                    const [locPart, occPart] = first.split(' - ').map(s => s.trim());
+                    location = locPart;
+                    occupation = occPart;
+                } else {
+                    // fallback heuristics
+                    // if paragraph contains a comma (City, State), treat as location
+                    if (first.includes(',')) {
+                        location = first;
+                    } else {
+                        // maybe it's "Location: ..." or similar: try to detect "city" tokens
+                        location = first;
+                    }
+                }
+            }
+
+            // employer: try to find a line that looks like employer (third <p> or the one with "@" or capitalized word)
+            let employer = '';
+            if (pEls.length >= 2) {
+                employer = pEls[1].textContent.trim();
+            }
+            // description: try to get the <p> that contains more text or the last <p>
+            let description = '';
+            if (pEls.length >= 3) {
+                description = pEls.slice(2).map(p => p.textContent).join(' ').trim();
+            } else {
+                // fallback: any long text inside the card not in h2
+                description = Array.from(card.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join(' ').trim();
+                if (!description) description = (card.textContent || '').trim();
+            }
+
+            // attempt to parse a state from location
+            const st = parseStateFromLocation(location);
+
+            // set data attributes (keep original DOM intact)
+            if (fullName) card.setAttribute('data-fullname', fullName);
+            if (location) card.setAttribute('data-location', location);
+            if (occupation) card.setAttribute('data-occupation', occupation);
+            if (employer) card.setAttribute('data-employer', employer);
+            if (description) card.setAttribute('data-description', description);
+            if (st) {
+                card.setAttribute('data-state', st.abbr);
+                card.setAttribute('data-state-full', st.name);
+            } else {
+                // explicit empty to mark processed
+                card.setAttribute('data-state', '');
+            }
+            card.setAttribute('data-annotated', '1');
+        } catch (e) {
+            // don't break anything
+            console.warn('annotateCard error', e);
+        }
+    }
+
+    // Observe additions to #reports-list so we can annotate each card (works with your existing fetch code)
+    function wireMutationObserver(reportsList) {
+        if (!reportsList) return;
+        // annotate any existing cards now
+        Array.from(reportsList.querySelectorAll('.report-card')).forEach(annotateCard);
+
+        // setup observer
+        const mo = new MutationObserver(muts => {
+            muts.forEach(m => {
+                if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
+                    m.addedNodes.forEach(n => {
+                        if (n.nodeType === 1) {
+                            if (n.classList && n.classList.contains('report-card')) {
+                                annotateCard(n);
+                            } else {
+                                // maybe appended as wrapper that contains cards
+                                Array.from(n.querySelectorAll && n.querySelectorAll('.report-card') || []).forEach(annotateCard);
+                            }
+                        }
+                    });
+                }
+            });
+            // small delay before applying filter to allow other scripts to modify DOM
+            setTimeout(filterReports, 40);
+        });
+
+        mo.observe(reportsList, { childList: true, subtree: false });
+    }
+
+    // On DOM ready: insert UI (if #reports-list exists) and wire observer
+    function init() {
+        const reportsList = document.getElementById('reports-list');
+        if (!reportsList) return;
+        insertFilterUI(reportsList);
+        wireMutationObserver(reportsList);
+
+        // also trigger an initial filtering attempt after a short delay (handles server-rendered cards)
+        setTimeout(() => {
+            // annotate any remaining cards then filter
+            Array.from(reportsList.querySelectorAll('.report-card')).forEach(annotateCard);
+            filterReports();
+        }, 300);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
 })();
