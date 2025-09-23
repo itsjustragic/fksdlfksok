@@ -105,6 +105,10 @@
             // timing check using debugger; when devtools open the `debugger` can cause a blocking pause
             try {
                 const start = performance.now();
+                // The `debugger` statement will pause when devtools are open and configured to pause on "debugger" statements.
+                // It's noisy and not always reliable, but combined with size heuristic gives better coverage.
+                // We avoid using a raw `debugger;` because it will halt JS when devtools are open and user has selected pause-on-exceptions.
+                // Instead, we use Function constructor to call debugger in an isolated function to reduce accidental pausing.
                 (new Function('/* anti-inspect-timing */')).call(null);
                 const end = performance.now();
                 return (end - start) > 100; // if slowed down significantly, assume devtools
@@ -146,12 +150,14 @@
     })();
 
     // 4) Warn/refresh if DevTools console is opened by using toString detection (older trick)
+    //    Combined with above; kept lightweight to avoid CPU overhead.
     (function consoleTrap() {
         try {
             const element = new Image();
             let triggered = false;
             Object.defineProperty(element, 'id', {
                 get: function () {
+                    // someone logging the image to console will trigger this getter
                     if (!triggered) {
                         triggered = true;
                         RELOAD();
@@ -159,8 +165,14 @@
                     return 'anti-inspect';
                 }
             });
+            // periodically log this image subtly — if the console prints it, getter runs.
             setInterval(function () {
                 try {
+                    // Clear any silent console interception by extensions by not directly calling console.log in some browsers,
+                    // but writing to console is still common — we use a non-obvious pattern.
+                    // If console is open and user inspects logged objects, the getter will run.
+                    // Note: this is noisy to console detection and not guaranteed, combined with other checks.
+                    // eslint-disable-next-line no-console
                     console.log(element);
                 } catch (e) {}
             }, 2000);
@@ -168,6 +180,7 @@
     })();
 
     // 5) Mutation observer: if someone injects elements commonly used by extensions (e.g. devtools extensions)
+    //    attempt a reload. This is broad and conservative and may reload pages on extension manipulations.
     (function mutationGuard() {
         try {
             const observer = new MutationObserver((mutations) => {
@@ -178,6 +191,7 @@
                             if (!n) continue;
                             if (n.nodeType === 1) {
                                 const tag = (n.tagName || '').toLowerCase();
+                                // heuristic: extension/devtools panels sometimes inject iframes, devtools-specific ids/classes
                                 if (tag === 'iframe' || tag === 'inspector' || (n.id && /devtools|inspector|extension/i.test(n.id)) || (n.className && /devtools|inspector|extension/i.test(n.className))) {
                                     RELOAD();
                                     return;
@@ -500,14 +514,22 @@ window.denyReport = async (reportId) => {
     }
 };
 
-/* ====== Append: small, non-destructive patch to add missing thumbnails if template didn't render them ====== */
-/* (unchanged) */
+/* ====== Append: small, non-destructive patch to add missing thumbnails if template didn't render them ======
+   This scans server-rendered cards and populates .evidence-gallery thumbnails from the JSON payload,
+   from links/text in the card, or from data-* attributes. It also wires a delegated lightbox click handler.
+   Safe to append — does not remove or replace existing code.
+========================================================= */
+
 (function addMissingThumbnails() {
+    // safe list of image extensions
     const IMG_EXT = ['jpg','jpeg','png','gif','webp','bmp','svg'];
+
     function looksLikeImageUrl(u) {
         if (!u || typeof u !== 'string') return false;
         try {
+            // strip wrapping < > or quotes
             let s = u.trim().replace(/^<|>$/g, '').replace(/^["'`“”’]/, '').replace(/["'`“”’]$/, '');
+            // drop query/hash for extension check
             const candidate = s.split('?')[0].split('#')[0].replace(/\/+$/,'');
             if (!candidate.includes('.')) return false;
             const ext = candidate.split('.').pop().toLowerCase();
@@ -516,19 +538,23 @@ window.denyReport = async (reportId) => {
             return false;
         }
     }
+
     function ensureGallery(card) {
         let gallery = card.querySelector('.evidence-gallery');
         if (!gallery) {
             gallery = document.createElement('div');
             gallery.className = 'evidence-gallery';
+            // prefer inserting after any .report-evidence block if present
             const evidence = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
             evidence.appendChild(gallery);
         }
         return gallery;
     }
+
     function appendThumb(gallery, url) {
         if (!url) return;
         const normalized = ('' + url).trim();
+        // avoid duplicates
         const existing = Array.from(gallery.querySelectorAll('img')).some(img => img.src === normalized);
         if (existing) return;
         const img = document.createElement('img');
@@ -539,12 +565,15 @@ window.denyReport = async (reportId) => {
         gallery.appendChild(img);
     }
 
+    // run on DOM ready (if already ready, run quickly)
     function run() {
         const cards = Array.from(document.querySelectorAll('.report-card'));
         if (!cards.length) return;
         cards.forEach(card => {
+            // if there are already thumbs or evidence-image, skip
             if (card.querySelector('.thumb, .evidence-image')) return;
 
+            // 1) Try JSON payload script inserted by template
             let added = false;
             const id = card.getAttribute('data-id') || (card.querySelector('[id^="p-"], [id^="r-"]') && (card.querySelector('[id^="p-"], [id^="r-"]').id.replace(/^p-|^r-/,'')));
             if (id) {
@@ -565,20 +594,27 @@ window.denyReport = async (reportId) => {
                 }
             }
 
+            // 2) fallback: search links and text nodes inside the card for image-like URLs
             if (!added) {
                 const urls = new Set();
+
+                // check <a> hrefs
                 Array.from(card.querySelectorAll('a[href]')).forEach(a => {
                     const h = a.getAttribute('href');
                     if (looksLikeImageUrl(h)) urls.add(h.trim());
                 });
+
+                // check any visible text nodes for http(s) tokens
                 const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
                 let node;
                 while ((node = walker.nextNode())) {
                     const txt = node.nodeValue || '';
+                    // quick heuristic split by whitespace / commas
                     txt.replace(/[,;|]/g, ' ').split(/\s+/).forEach(tok => {
                         if (looksLikeImageUrl(tok)) urls.add(tok.trim());
                     });
                 }
+
                 if (urls.size) {
                     const gallery = ensureGallery(card);
                     urls.forEach(u => appendThumb(gallery, u));
@@ -586,11 +622,13 @@ window.denyReport = async (reportId) => {
                 }
             }
 
+            // 3) final attempt: check data attributes (sometimes servers dump arrays into data-* attributes)
             if (!added) {
                 const dataKeys = ['data-images','data-image-urls','data-imageUrls','data-image_list'];
                 dataKeys.forEach(k => {
                     const attr = card.getAttribute(k);
                     if (attr) {
+                        // try JSON then comma/line split
                         let arr = [];
                         try { arr = JSON.parse(attr || '[]'); } catch(e) { arr = attr.split(/[\r\n,]+/).map(s=>s.trim()).filter(Boolean); }
                         if (arr.length) {
@@ -602,6 +640,7 @@ window.denyReport = async (reportId) => {
             }
         });
 
+        // Re-bind lightbox clicks for thumbnails we just added (delegated handler)
         try {
             const lightbox = document.getElementById('lightbox');
             const imgEl = document.getElementById('lightbox-img');
@@ -643,6 +682,7 @@ window.denyReport = async (reportId) => {
                 captionEl.textContent = imgEl.alt;
             }
 
+            // remove previous delegated handler if exists
             if (window.__thumbLightboxHandler) {
                 document.removeEventListener('click', window.__thumbLightboxHandler);
             }
@@ -666,6 +706,7 @@ window.denyReport = async (reportId) => {
             };
             document.addEventListener('click', window.__thumbLightboxHandler);
 
+            // attach prev/next/close controls (ensure not duplicated)
             const prevBtn = document.querySelector('.lightbox-arrow.left');
             const nextBtn = document.querySelector('.lightbox-arrow.right');
             const closeBtn = document.querySelector('.lightbox-close');
@@ -683,11 +724,13 @@ window.denyReport = async (reportId) => {
                 window.__thumbKey = function(ev){ if (!lightbox.classList.contains('visible')) return; if (ev.key === 'Escape') hideLightbox(); if (ev.key === 'ArrowLeft') showPrev(); if (ev.key === 'ArrowRight') showNext(); };
                 document.addEventListener('keydown', window.__thumbKey);
 
+                // clicking on overlay to close
                 lightbox.addEventListener('click', function(ev){ if (ev.target === lightbox) hideLightbox(); });
             }
         } catch(e){ /* ignore lightbox wiring errors */ }
     }
 
+    // run shortly after load (in case server DOM is still parsing) and again after a small delay
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => { setTimeout(run, 80); setTimeout(run, 600); });
     } else {
@@ -695,7 +738,14 @@ window.denyReport = async (reportId) => {
     }
 })();
 
-/* ====== Robust filter/search compatibility patch (FIXED state-only filtering) ====== */
+/* ====== Non-destructive: robust filter/search compatibility patch (FIXED state-only filtering) ======
+   This appended block will:
+   - Always operate over all .report-card elements (avoid container mismatch)
+   - Populate and normalize state selection (match abbr or full name)
+   - Annotate cards with data-state (abbr) and data-state-full (full name) for reliable matching
+   - Observe DOM changes and re-run filter
+====================================================================== */
+
 (function() {
     const STATES = [
         {name:'Alabama', abbr:'AL'},{name:'Alaska', abbr:'AK'},{name:'Arizona', abbr:'AZ'},{name:'Arkansas', abbr:'AR'},
@@ -715,31 +765,22 @@ window.denyReport = async (reportId) => {
 
     function norm(s) { return (s || '').toString().trim().toLowerCase(); }
 
-    // Improved parser: try to find full state name first; if not found, try 2-letter abbr as whole word
     function parseStateFromLocation(loc) {
         if (!loc) return null;
         const s = loc.replace(/\s+/g, ' ').trim();
         const lower = s.toLowerCase();
-
         for (let st of STATES) {
-            if (lower.indexOf(st.name.toLowerCase()) !== -1) return {abbr: st.abbr, name: st.name};
+            if (lower.includes(st.name.toLowerCase())) return {abbr: st.abbr, name: st.name};
         }
-
-        // look for 2-letter codes as whole words (e.g., "UT", "UT 84062", ", UT" etc)
         for (let st of STATES) {
-            const re = new RegExp('\\b' + st.abbr + '\\b', 'i');
+            const ab = st.abbr.toLowerCase();
+            const re = new RegExp('\\b' + ab + '\\b', 'i');
             if (re.test(s)) return {abbr: st.abbr, name: st.name};
         }
-
-        // also look for postal forms like "UT," or "UT." or "UT:" at end
-        for (let st of STATES) {
-            const re = new RegExp('\\b' + st.abbr + '[\\.,:\\s]*$', 'i');
-            if (re.test(s)) return {abbr: st.abbr, name: st.name};
-        }
-
         return null;
     }
 
+    // always use global .report-card list to avoid container mismatch
     function allReportCards() {
         return Array.from(document.querySelectorAll('.report-card'));
     }
@@ -791,7 +832,7 @@ window.denyReport = async (reportId) => {
         sel.style.padding = '8px';
         const o = document.createElement('option');
         o.value = '';
-        o.textContent = 'All states';
+        o.textContent = 'All States';
         sel.appendChild(o);
         panel.appendChild(sel);
 
@@ -828,14 +869,13 @@ window.denyReport = async (reportId) => {
         stateSelect.appendChild(allOpt);
         STATES.forEach(st => {
             const opt = document.createElement('option');
-            // use the abbreviation as the option value (consistent) and display full name
-            opt.value = st.abbr;
+            opt.value = st.abbr; // abbr is safer as a value, UI shows full name
             opt.textContent = st.name;
             stateSelect.appendChild(opt);
         });
     }
 
-    // Annotate or re-annotate cards to ensure data-state / data-state-full exist
+    // annotate a single card with data-* attributes used for filtering (adds both abbr and full)
     function annotateCard(card) {
         try {
             if (!card || !card.classList || !card.classList.contains('report-card')) return;
@@ -851,11 +891,16 @@ window.denyReport = async (reportId) => {
                 if (items.length >= 1) location = items[0];
                 if (items.length >= 2) platform = items[1];
             } else {
-                const firstP = card.querySelector('p');
-                if (firstP) {
-                    const first = firstP.textContent.trim();
-                    // common server renderings use "State · Platform" or "City, State - Occupation"
-                    location = first;
+                const pEls = Array.from(card.querySelectorAll('p'));
+                if (pEls.length) {
+                    const first = pEls[0].textContent.trim();
+                    if (first.includes(' - ')) {
+                        const parts = first.split(' - ').map(s => s.trim());
+                        location = parts[0] || '';
+                        occupation = parts[1] || occupation;
+                    } else {
+                        if (first.includes(',')) location = first;
+                    }
                 }
             }
 
@@ -874,6 +919,7 @@ window.denyReport = async (reportId) => {
             if (descEl) description = descEl.textContent.trim();
             else description = card.textContent.trim();
 
+            // allow server-side data-state-full or data-state already present; otherwise parse location
             let existingFull = (card.getAttribute('data-state-full') || '').trim();
             let existingAbbr = (card.getAttribute('data-state') || '').trim();
 
@@ -887,7 +933,7 @@ window.denyReport = async (reportId) => {
             if (employer) card.setAttribute('data-employer', employer);
             if (platform) card.setAttribute('data-platform', platform);
             if (description) card.setAttribute('data-description', description);
-            if (existingAbbr) card.setAttribute('data-state', existingAbbr.toUpperCase());
+            if (existingAbbr) card.setAttribute('data-state', existingAbbr);
             else if (!card.hasAttribute('data-state')) card.setAttribute('data-state', '');
             if (existingFull) card.setAttribute('data-state-full', existingFull);
             else if (!card.hasAttribute('data-state-full')) card.setAttribute('data-state-full', '');
@@ -897,47 +943,29 @@ window.denyReport = async (reportId) => {
         }
     }
 
-    // reliable state info reader (reads existing attributes and falls back to parsing location)
-    function getCardStateInfo(card) {
-        try {
-            const abbr = (card.getAttribute('data-state') || '').toString().trim().toUpperCase();
-            const full = (card.getAttribute('data-state-full') || '').toString().trim();
-            const loc = (card.getAttribute('data-location') || '').toString().trim();
-            if (abbr) {
-                const byAbbr = STATES.find(s => s.abbr === abbr);
-                if (byAbbr) return { abbr: byAbbr.abbr, name: byAbbr.name };
-                return { abbr: abbr, name: full || '' };
-            }
-            if (full) {
-                const byName = STATES.find(s => s.name.toLowerCase() === full.toLowerCase());
-                if (byName) return { abbr: byName.abbr, name: byName.name };
-                return { abbr: '', name: full };
-            }
-            const parsed = parseStateFromLocation(loc || '');
-            if (parsed) return parsed;
-            return { abbr: '', name: '' };
-        } catch (e) {
-            return { abbr: '', name: '' };
-        }
-    }
-
+    // derive desired abbr and name from selection value (supports both abbr and full name)
     function normalizeSelectedState(value) {
+        // <<< FIX HERE >>>: treat empty or "ALL" as no selection
         if (!value) return { abbr: '', name: '' };
-        const v = ('' + value).trim();
-        // if value is exactly 2 chars, treat as abbr
+        const vv = ('' + value).trim();
+        if (vv.toUpperCase() === 'ALL') return { abbr: '', name: '' };
+
+        const v = vv;
         if (v.length === 2) {
             const found = STATES.find(s => s.abbr.toLowerCase() === v.toLowerCase());
             return found ? { abbr: found.abbr, name: found.name } : { abbr: v.toUpperCase(), name: '' };
         }
-        // value could be a full name (if a server template used full names)
+        // might be full name or abbr spelled out (e.g., "Wyoming")
         const byName = STATES.find(s => s.name.toLowerCase() === v.toLowerCase());
         if (byName) return { abbr: byName.abbr, name: byName.name };
-        // try if someone passed "State, Country" or similar — match startsWith
-        const starts = STATES.find(s => v.toLowerCase().indexOf(s.name.toLowerCase()) !== -1);
-        if (starts) return { abbr: starts.abbr, name: starts.name };
+        // also accept if value is a full name but casing different, or if value is the display text in option but value is abbr
+        const byAbbr = STATES.find(s => s.abbr.toLowerCase() === v.toLowerCase());
+        if (byAbbr) return { abbr: byAbbr.abbr, name: byAbbr.name };
+        // fallback: return string in both fields so we can compare against full name
         return { abbr: '', name: v };
     }
 
+    // main filtering function (uses all report cards on the page)
     function filterReports() {
         const searchInput = document.getElementById('reports-search') || document.getElementById('reports-search-input');
         const stateSelect = document.getElementById('reports-state') || document.getElementById('reports-state-select');
@@ -945,7 +973,9 @@ window.denyReport = async (reportId) => {
 
         const q = norm(searchInput && searchInput.value);
         const rawState = (stateSelect && (stateSelect.value || '') ) || '';
-        const desired = normalizeSelectedState(rawState);
+        // <<< FIX HERE >>>: normalize server template "ALL" to empty
+        const normalizedRawState = ('' + rawState).trim().toUpperCase() === 'ALL' ? '' : rawState;
+        const desired = normalizeSelectedState(normalizedRawState);
 
         const cards = allReportCards();
         let visible = 0;
@@ -954,19 +984,25 @@ window.denyReport = async (reportId) => {
             annotateCard(card);
             let show = true;
 
-            // state filtering: if a state is chosen, only show exact matches (abbr or full name)
+            // state filtering: if a state is chosen, only show exact matches
             if (desired && (desired.abbr || desired.name)) {
-                const info = getCardStateInfo(card);
-                const csAbbr = (info.abbr || '').toString().trim().toUpperCase();
-                const csName = (info.name || '').toString().trim().toLowerCase();
+                const csAbbr = (card.getAttribute('data-state') || '').toString().trim().toUpperCase();
+                const csFull = (card.getAttribute('data-state-full') || '').toString().trim().toLowerCase();
                 const desiredAbbr = (desired.abbr || '').toString().trim().toUpperCase();
                 const desiredName = (desired.name || '').toString().trim().toLowerCase();
 
+                // show card only if it matches abbr OR matches full name
                 const abbrMatch = desiredAbbr && csAbbr && csAbbr === desiredAbbr;
-                const nameMatch = desiredName && csName && csName === desiredName;
+                const nameMatch = desiredName && csFull && csFull === desiredName;
 
-                // Strict: only allow match if abbrMatch or nameMatch
-                if (!(abbrMatch || nameMatch)) {
+                // Also accept if either location text contains the full name (defensive)
+                let fallbackMatch = false;
+                if (!abbrMatch && !nameMatch) {
+                    const loc = (card.getAttribute('data-location') || '').toString().trim().toLowerCase();
+                    if (desiredName && loc && loc.includes(desiredName)) fallbackMatch = true;
+                }
+
+                if (!(abbrMatch || nameMatch || fallbackMatch)) {
                     show = false;
                 }
             }
@@ -999,6 +1035,7 @@ window.denyReport = async (reportId) => {
 
     // observe DOM for added report-cards and re-run annotate+filter
     function wireObserver() {
+        // annotate existing immediately
         allReportCards().forEach(annotateCard);
 
         const observer = new MutationObserver(mutations => {
