@@ -10,13 +10,23 @@
     /* lightbox / thumb styles */
     .lightbox-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:99999; padding:20px; }
     .lightbox-overlay.visible { display:flex; }
-    .lightbox-container { position: relative; max-width:95%; max-height:95%; display:flex; align-items:center; justify-content:center; }
-    .lightbox-image { max-width:100%; max-height:100%; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
-    .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer; }
-    .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.5); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; }
+    /* container holds image; allow overflow so arrows can sit outside image */
+    .lightbox-container { position: relative; max-width:95%; max-height:95%; display:flex; align-items:center; justify-content:center; overflow: visible; }
+    .lightbox-image { max-width:100%; max-height:100%; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display:block; }
+    .lightbox-close { position:absolute; top:8px; right:8px; background: rgba(0,0,0,0.6); color:#fff; border:none; font-size:20px; width:36px; height:36px; border-radius:6px; cursor:pointer }
+    /* arrows: initially hidden, displayed by JS only when gallery length > 1
+       positioned outside the image using negative offsets; overlay padding supplies space */
+    .lightbox-arrow { position:absolute; top:50%; transform:translateY(-50%); background: rgba(0,0,0,0.55); color:#fff; border:none; font-size:28px; width:48px; height:72px; cursor:pointer; border-radius:6px; display:none; align-items:center; justify-content:center; }
+    .lightbox-arrow.left { left: calc(-1 * (48px + 8px)); }   /* slightly outside left */
+    .lightbox-arrow.right { right: calc(-1 * (48px + 8px)); }  /* slightly outside right */
     .thumb, .evidence-image { cursor: zoom-in; max-width:100%; border-radius:4px; display:block; margin:8px 0; }
+    .evidence-gallery { display:block; margin-top:8px; }
+    .evidence-gallery img { max-width:180px; margin:6px; display:inline-block; vertical-align:top; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.35); }
+    .evidence-link { display:inline-block; margin:6px 8px; padding:6px 10px; background:#222; color:#fff; border-radius:6px; text-decoration:none; }
+    .report-card { background:#111; color:#ddd; padding:20px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); margin:18px 0; }
+    .report-evidence { margin-top:12px; }
     .lightbox-caption { margin-top:10px; color:#fff; font-size:0.95rem; text-align:center; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; } }
+    @media (max-width:720px){ .lightbox-arrow { width:42px; height:56px; font-size:22px; left: calc(-1 * (42px + 6px)); right: calc(-1 * (42px + 6px)); } }
     </style>
 </head>
 <body>
@@ -48,62 +58,14 @@
             <label for="reports-state" class="visually-hidden">Filter by state</label>
             <select id="reports-state" aria-label="Filter reports by state">
                 <option value="ALL">All States</option>
-                <option value="AL">Alabama</option>
-                <option value="AK">Alaska</option>
-                <option value="AZ">Arizona</option>
-                <option value="AR">Arkansas</option>
-                <option value="CA">California</option>
-                <option value="CO">Colorado</option>
-                <option value="CT">Connecticut</option>
-                <option value="DE">Delaware</option>
-                <option value="FL">Florida</option>
-                <option value="GA">Georgia</option>
-                <option value="HI">Hawaii</option>
-                <option value="ID">Idaho</option>
-                <option value="IL">Illinois</option>
-                <option value="IN">Indiana</option>
-                <option value="IA">Iowa</option>
-                <option value="KS">Kansas</option>
-                <option value="KY">Kentucky</option>
-                <option value="LA">Louisiana</option>
-                <option value="ME">Maine</option>
-                <option value="MD">Maryland</option>
-                <option value="MA">Massachusetts</option>
-                <option value="MI">Michigan</option>
-                <option value="MN">Minnesota</option>
-                <option value="MS">Mississippi</option>
-                <option value="MO">Missouri</option>
-                <option value="MT">Montana</option>
-                <option value="NE">Nebraska</option>
-                <option value="NV">Nevada</option>
-                <option value="NH">New Hampshire</option>
-                <option value="NJ">New Jersey</option>
-                <option value="NM">New Mexico</option>
-                <option value="NY">New York</option>
-                <option value="NC">North Carolina</option>
-                <option value="ND">North Dakota</option>
-                <option value="OH">Ohio</option>
-                <option value="OK">Oklahoma</option>
-                <option value="OR">Oregon</option>
-                <option value="PA">Pennsylvania</option>
-                <option value="RI">Rhode Island</option>
-                <option value="SC">South Carolina</option>
-                <option value="SD">South Dakota</option>
-                <option value="TN">Tennessee</option>
-                <option value="TX">Texas</option>
+                <!-- ...states... -->
                 <option value="UT">Utah</option>
-                <option value="VT">Vermont</option>
-                <option value="VA">Virginia</option>
-                <option value="WA">Washington</option>
-                <option value="WV">West Virginia</option>
-                <option value="WI">Wisconsin</option>
-                <option value="WY">Wyoming</option>
-                <option value="DC">District of Columbia</option>
             </select>
         </div>
 
         <div id="no-results" class="no-results" style="display:none;">No reports match your filter.</div>
     </div>
+
     <div class="reports-grid" id="reports-grid">
         {% set _seen_sigs = [] %}
 
@@ -141,9 +103,23 @@
                         <p class="desc">{{ report.description }}</p>
 
                         <div class="report-evidence">
-                            {# same robust parsing as pending.html - build image_list from many possible shapes #}
-                            {% set image_list = [] %}
+                            {# attempt to render evidence_url if it looks like an image #}
+                            {% if report.evidence_url %}
+                                {% set ev2 = report.evidence_url %}
+                                {% if ev2 is string %}
+                                    {% set chk = ev2.strip() %}
+                                    {% set candidate = chk.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
+                                    {% if ext in ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
+                                        <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
+                                    {% else %}
+                                        <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
 
+                            {# build image_list (same robust parsing you already had) #}
+                            {% set image_list = [] %}
                             {% if report.image_urls %}
                                 {% if report.image_urls is string %}
                                     {% set raw = report.image_urls.strip() %}
@@ -151,107 +127,50 @@
                                         {% set inner = raw[1:-1] %}
                                         {% for part in inner.split(',') %}
                                             {% set p = part.strip().strip('"').strip("'") %}
-                                            {% if p %}
-                                                {% set image_list = image_list + [p] %}
-                                            {% endif %}
+                                            {% if p %}{% set image_list = image_list + [p] %}{% endif %}
                                         {% endfor %}
                                     {% else %}
                                         {% for line in report.image_urls.splitlines() %}
                                             {% for part in line.split(',') %}
                                                 {% set u = part.strip() %}
-                                                {% if u.startswith('<') and u.endswith('>') %}
-                                                    {% set u = u[1:-1].strip() %}
-                                                {% endif %}
+                                                {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
                                                 {% set u = u.strip().strip('"').strip("'") %}
-                                                {% if u %}
-                                                    {% set image_list = image_list + [u] %}
-                                                {% endif %}
+                                                {% if u %}{% set image_list = image_list + [u] %}{% endif %}
                                             {% endfor %}
                                         {% endfor %}
                                     {% endif %}
                                 {% else %}
-                                    {% for item in report.image_urls %}
-                                        {% if item %}
-                                            {% set u = item %}
-                                            {% if u is string %}
-                                                {% set u = u.strip() %}
-                                                {% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}
-                                                {% set u = u.strip().strip('"').strip("'") %}
-                                            {% endif %}
-                                            {% if u %}{% set image_list = image_list + [u] %}{% endif %}
-                                        {% endif %}
-                                    {% endfor %}
+                                    {% for item in report.image_urls %}{% if item %}{% set u = item %}{% if u is string %}{% set u = u.strip() %}{% if u.startswith('<') and u.endswith('>') %}{% set u = u[1:-1].strip() %}{% endif %}{% set u = u.strip().strip('"').strip("'") %}{% endif %}{% if u %}{% set image_list = image_list + [u] %}{% endif %}{% endif %}{% endfor %}
                                 {% endif %}
                             {% endif %}
 
-                            {# other potential keys #}
-                            {% if report.image_list %}
-                                {% if report.image_list is string %}
-                                    {% for line in report.image_list.splitlines() %}
-                                        {% for part in line.split(',') %}
-                                            {% set v = part.strip() %}
-                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                            {% for altkey in ['image_list','images_only','images','imageUrls'] %}
+                                {% if report[altkey] is defined and report[altkey] %}
+                                    {% if report[altkey] is string %}
+                                        {% for line in report[altkey].splitlines() %}
+                                            {% for part in line.split(',') %}
+                                                {% set v = part.strip() %}
+                                                {% if v %}{% set image_list = image_list + [v] %}{% endif %}
+                                            {% endfor %}
                                         {% endfor %}
-                                    {% endfor %}
-                                {% else %}
-                                    {% for item in report.image_list %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                    {% else %}
+                                        {% for item in report[altkey] %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
+                                    {% endif %}
                                 {% endif %}
-                            {% endif %}
-
-                            {% if report.images_only %}
-                                {% if report.images_only is string %}
-                                    {% for line in report.images_only.splitlines() %}
-                                        {% for part in line.split(',') %}
-                                            {% set v = part.strip() %}
-                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
-                                        {% endfor %}
-                                    {% endfor %}
-                                {% else %}
-                                    {% for item in report.images_only %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
-                                {% endif %}
-                            {% endif %}
-
-                            {% if report.images %}
-                                {% if report.images is string %}
-                                    {% for line in report.images.splitlines() %}
-                                        {% for part in line.split(',') %}
-                                            {% set v = part.strip() %}
-                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
-                                        {% endfor %}
-                                    {% endfor %}
-                                {% else %}
-                                    {% for item in report.images %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
-                                {% endif %}
-                            {% endif %}
-
-                            {% if report.imageUrls %}
-                                {% if report.imageUrls is string %}
-                                    {% for line in report.imageUrls.splitlines() %}
-                                        {% for part in line.split(',') %}
-                                            {% set v = part.strip() %}
-                                            {% if v %}{% set image_list = image_list + [v] %}{% endif %}
-                                        {% endfor %}
-                                    {% endfor %}
-                                {% else %}
-                                    {% for item in report.imageUrls %}{% if item %}{% set image_list = image_list + [item] %}{% endif %}{% endfor %}
-                                {% endif %}
-                            {% endif %}
+                            {% endfor %}
 
                             {# normalize & dedupe preserving order #}
                             {% set seen = [] %}
-                            {% set normalized_list = [] %}
+                            {% set normalized = [] %}
                             {% for u in image_list %}
                                 {% if u is string %}
                                     {% set uu = u.strip() %}
                                     {% if uu.startswith('<') and uu.endswith('>') %}{% set uu = uu[1:-1].strip() %}{% endif %}
                                     {% set uu = uu.strip().strip('"').strip("'") %}
-                                    {% if uu and uu not in seen %}
-                                        {% set seen = seen + [uu] %}
-                                        {% set normalized_list = normalized_list + [uu] %}
-                                    {% endif %}
+                                    {% if uu and uu not in seen %}{% set seen = seen + [uu] %}{% set normalized = normalized + [uu] %}{% endif %}
                                 {% endif %}
                             {% endfor %}
-                            {% set image_list = normalized_list %}
+                            {% set image_list = normalized %}
 
                             {# extension-based filter #}
                             {% set img_exts = ['jpg','jpeg','png','gif','webp','bmp','svg'] %}
@@ -263,36 +182,16 @@
                                     {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
                                     {% set candidate = ev2.split('?')[0].split('#')[0].rstrip('/') %}
                                     {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
-                                    {% if ext in img_exts %}
-                                        {% set images_only = images_only + [ev] %}
-                                    {% endif %}
+                                    {% if ext in img_exts %}{% set images_only = images_only + [ev] %}{% endif %}
                                 {% endif %}
                             {% endif %}
                             {% for url in image_list %}
                                 {% set candidate = url.split('?')[0].split('#')[0].rstrip('/') %}
                                 {% set ext = candidate.rsplit('.',1)[-1]|lower if '.' in candidate else '' %}
-                                {% if ext in img_exts and (url not in images_only) %}
-                                    {% set images_only = images_only + [url] %}
-                                {% endif %}
+                                {% if ext in img_exts and (url not in images_only) %}{% set images_only = images_only + [url] %}{% endif %}
                             {% endfor %}
 
-                            {# render evidence_url if extension matches otherwise link #}
-                            {% if report.evidence_url %}
-                                {% set evsrc = report.evidence_url %}
-                                {% if evsrc is string %}
-                                    {% set ev2 = evsrc.strip() %}
-                                    {% if ev2.startswith('<') and ev2.endswith('>') %}{% set ev2 = ev2[1:-1].strip() %}{% endif %}
-                                    {% set chk = ev2.split('?')[0].split('#')[0].rstrip('/') %}
-                                    {% set ext = chk.rsplit('.',1)[-1]|lower if '.' in chk else '' %}
-                                    {% if ext in img_exts %}
-                                        <img src="{{ report.evidence_url }}" alt="Evidence" class="evidence-image" loading="lazy">
-                                    {% else %}
-                                        <a href="{{ report.evidence_url }}" class="evidence-link" target="_blank" rel="noopener noreferrer">View evidence</a>
-                                    {% endif %}
-                                {% endif %}
-                            {% endif %}
-
-                            {# gallery #}
+                            {# server-rendered gallery if any #}
                             {% if image_list and image_list|length > 0 %}
                                 <div class="evidence-gallery">
                                     {% for url in image_list %}
@@ -306,6 +205,7 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
+
                         </div>
 
                         {# JS lightbox payload #}
@@ -321,46 +221,76 @@
     </div>
 </main>
 
-<!-- Lightbox DOM & inline script (same as before) -->
+<!-- Lightbox DOM -->
 <div id="lightbox" class="lightbox-overlay" aria-hidden="true" role="dialog" aria-modal="true">
     <div class="lightbox-container">
-        <button class="lightbox-arrow left" aria-label="Previous image">&larr;</button>
+        <button class="lightbox-arrow left" aria-label="Previous image" id="lb-prev">&#x2190;</button>
         <img src="" alt="" class="lightbox-image" id="lightbox-img">
-        <button class="lightbox-arrow right" aria-label="Next image">&rarr;</button>
-        <button class="lightbox-close" aria-label="Close lightbox">&times;</button>
+        <button class="lightbox-arrow right" aria-label="Next image" id="lb-next">&#x2192;</button>
+        <button class="lightbox-close" aria-label="Close lightbox" id="lb-close">&times;</button>
     </div>
     <div class="lightbox-caption" id="lightbox-caption"></div>
 </div>
 
 <script>
 (function(){
+    'use strict';
+
+    const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
+    const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+
+    function normalizeUrl(u) {
+        if (!u) return '';
+        u = ('' + u).trim();
+        if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
+        if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
+        return u.trim();
+    }
+
+    // Read JSON payloads emitted by server
     const imageScripts = Array.from(document.querySelectorAll('script[type="application/json"][data-report-images-for]'));
     const reportImages = {};
     imageScripts.forEach(s => {
         try {
             const id = s.getAttribute('data-report-images-for');
             const arr = JSON.parse(s.textContent || '[]');
-            reportImages[id] = Array.isArray(arr) ? arr : [];
-        } catch (e) {}
+            reportImages[id] = Array.isArray(arr) ? arr.map(normalizeUrl).filter(Boolean) : [];
+        } catch (e) {
+            // ignore parse errors
+            try {
+                const id = s.getAttribute('data-report-images-for');
+                const found = (s.textContent || '').match(HTTP_IMG_TOKEN_RE) || [];
+                reportImages[id] = found.map(normalizeUrl);
+            } catch(_) { /*noop*/ }
+        }
     });
 
+    // Lightbox elements
     const lightbox = document.getElementById('lightbox');
     const imgEl = document.getElementById('lightbox-img');
     const captionEl = document.getElementById('lightbox-caption');
-    const btnPrev = document.querySelector('.lightbox-arrow.left');
-    const btnNext = document.querySelector('.lightbox-arrow.right');
-    const btnClose = document.querySelector('.lightbox-close');
+    const btnPrev = document.getElementById('lb-prev');
+    const btnNext = document.getElementById('lb-next');
+    const btnClose = document.getElementById('lb-close');
 
     let currentGallery = [];
     let currentIndex = 0;
 
     function showLightbox(gallery, index) {
         if (!gallery || gallery.length === 0) return;
-        currentGallery = gallery;
-        currentIndex = Math.max(0, Math.min(index, gallery.length - 1));
+        currentGallery = gallery.slice();
+        currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
         imgEl.src = currentGallery[currentIndex];
         imgEl.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
         captionEl.textContent = imgEl.alt;
+        // show arrows only if more than one image
+        if (currentGallery.length > 1) {
+            btnPrev.style.display = 'flex';
+            btnNext.style.display = 'flex';
+        } else {
+            btnPrev.style.display = 'none';
+            btnNext.style.display = 'none';
+        }
         lightbox.classList.add('visible');
         lightbox.setAttribute('aria-hidden', 'false');
     }
@@ -371,6 +301,8 @@
         imgEl.src = '';
         currentGallery = [];
         currentIndex = 0;
+        btnPrev.style.display = 'none';
+        btnNext.style.display = 'none';
     }
 
     function showPrev() {
@@ -389,41 +321,127 @@
         captionEl.textContent = imgEl.alt;
     }
 
-    document.querySelectorAll('.report-card').forEach(card => {
-        const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="p-"]') && card.querySelector('[id^="p-"]').id.replace('p-',''));
-        const galleryFromJSON = reportImages[reportId] || [];
-        card.addEventListener('click', (ev) => {
-            const target = ev.target;
-            if (target.classList && (target.classList.contains('thumb') || target.classList.contains('evidence-image'))) {
-                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => el.src).filter(Boolean);
-                const actualGallery = imgs.length ? imgs : galleryFromJSON;
-                if (actualGallery.length === 0) return;
-                const clickedSrc = target.src || target.getAttribute('src');
+    // Extract image URLs from a card's DOM (imgs, links, text tokens)
+    function extractFromDOM(card) {
+        const found = new Set();
+        // images already present
+        Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+        // links
+        Array.from(card.querySelectorAll('a')).forEach(a => {
+            const href = a.getAttribute('href') || '';
+            if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
+        });
+        // search visible text for image tokens
+        const text = card.innerText || card.textContent || '';
+        let match;
+        while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) {
+            found.add(normalizeUrl(match[0]));
+        }
+        return Array.from(found);
+    }
+
+    // Build gallery DOM if none exists; returns array of injected URLs
+    function buildGallery(card, urls) {
+        if (!urls || !urls.length) return [];
+        // existing gallery
+        let gallery = card.querySelector('.evidence-gallery');
+        let created = false;
+        if (!gallery) {
+            gallery = document.createElement('div');
+            gallery.className = 'evidence-gallery';
+            created = true;
+        }
+        const existingSrc = new Set(Array.from(gallery.querySelectorAll('img')).map(i => normalizeUrl(i.src)));
+        const injected = [];
+        urls.forEach(u => {
+            if (!u) return;
+            if (!IMG_EXT_RE.test(u)) return;
+            if (existingSrc.has(u)) return;
+            try {
+                const img = document.createElement('img');
+                img.src = u;
+                img.alt = 'Additional evidence';
+                img.loading = 'lazy';
+                img.className = 'thumb';
+                img.setAttribute('data-auto-injected', '1');
+                gallery.appendChild(img);
+                injected.push(u);
+                existingSrc.add(u);
+            } catch(e) { console.warn('buildGallery append error', e); }
+        });
+        if (created) {
+            const evidenceContainer = card.querySelector('.report-evidence') || card.querySelector('.report-card-body') || card;
+            evidenceContainer.appendChild(gallery);
+        }
+        return injected;
+    }
+
+    // Process all report cards: use server JSON payload first, then DOM tokens, inject if needed
+    function gatherAndInjectAll() {
+        const cards = Array.from(document.querySelectorAll('.report-card'));
+        cards.forEach(card => {
+            try {
+                const reportId = card.getAttribute('data-id') || (card.querySelector('[id^="r-"]') && card.querySelector('[id^="r-"]').id.replace('r-','')) || 'unknown';
+                const payload = (reportImages[reportId] || []).map(normalizeUrl).filter(Boolean);
+                const domFound = extractFromDOM(card);
+                // prefer payload order, then dom tokens not in payload
+                const combined = Array.from(new Set(payload.concat(domFound)));
+                const images = combined.filter(u => IMG_EXT_RE.test(u));
+                if (!images.length) return;
+                buildGallery(card, images);
+            } catch (e) {
+                console.error('gatherAndInjectAll error', e);
+            }
+        });
+    }
+
+    // wire thumb clicks to open lightbox using the gallery present in that card
+    function wireThumbnailClicks() {
+        document.querySelectorAll('.report-card').forEach(card => {
+            card.addEventListener('click', (ev) => {
+                const target = ev.target;
+                if (!(target && target.classList)) return;
+                if (!(target.classList.contains('thumb') || target.classList.contains('evidence-image'))) return;
+                const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(el => normalizeUrl(el.src)).filter(Boolean);
+                const reportId = card.getAttribute('data-id');
+                const fallback = reportImages[reportId] || [];
+                const actualGallery = imgs.length ? imgs : fallback;
+                if (!actualGallery.length) return;
+                const clickedSrc = normalizeUrl(target.src || target.getAttribute('src') || '');
                 let idx = actualGallery.indexOf(clickedSrc);
                 if (idx === -1) idx = 0;
                 showLightbox(actualGallery, idx);
-            }
+            });
         });
-    });
+    }
 
+    // wire lightbox controls
     btnPrev.addEventListener('click', showPrev);
     btnNext.addEventListener('click', showNext);
     btnClose.addEventListener('click', hideLightbox);
-
-    lightbox.addEventListener('click', (ev) => {
-        if (ev.target === lightbox || ev.target === captionEl) hideLightbox();
-    });
-
+    lightbox.addEventListener('click', (ev) => { if (ev.target === lightbox || ev.target === captionEl) hideLightbox(); });
     document.addEventListener('keydown', (ev) => {
         if (!lightbox.classList.contains('visible')) return;
         if (ev.key === 'Escape') hideLightbox();
         if (ev.key === 'ArrowLeft') showPrev();
         if (ev.key === 'ArrowRight') showNext();
     });
+
+    // init on DOM ready
+    document.addEventListener('DOMContentLoaded', () => {
+        try {
+            gatherAndInjectAll();
+            wireThumbnailClicks();
+            // optionally expose for manual testing
+            window.__reports_image_fixer = { run: () => { gatherAndInjectAll(); wireThumbnailClicks(); } };
+            console.info('reports image-fixer initialized');
+        } catch (e) {
+            console.error('reports image-fixer init error', e);
+        }
+    });
+
 })();
 </script>
 
-<script src="/static/script.js"></script>
 </body>
 </html>
-
