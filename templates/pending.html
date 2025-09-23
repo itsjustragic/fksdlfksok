@@ -18,7 +18,6 @@
     .evidence-gallery { display:block; margin-top:8px; }
     .evidence-gallery img { max-width:180px; margin:6px; display:inline-block; vertical-align:top; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.35) }
     .evidence-link { display:inline-block; margin:6px 8px; padding:6px 10px; background:#222; color:#fff; border-radius:6px; text-decoration:none; }
-    .report-evidence { margin-top:12px; }
     .report-card { background:#111; color:#ddd; padding:20px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); margin:18px 0; }
 
     /* NEW: video + social styling */
@@ -90,7 +89,7 @@
                                     {% elif ext in ['mp4','webm','mov','m3u8'] %}
                                         {# render a small video preview if direct video URL provided server-side #}
                                         <div class="evidence-videos">
-                                          <div class="video-item">
+                                          <div class="video-item" data-src="{{ report.evidence_url }}">
                                             <video controls preload="metadata" poster="" crossorigin="anonymous">
                                               <source src="{{ report.evidence_url }}" type="video/{{ ext }}">
                                               Your browser does not support the video tag.
@@ -180,13 +179,32 @@
                                 {% endif %}
                             {% endif %}
 
+                            {# --- NORMALIZE + DEDUPE vid_list BEFORE RENDERING --- #}
+                            {% set _seen_vid_candidates = [] %}
+                            {% set _normalized_vids = [] %}
+                            {% for url in vid_list %}
+                                {% if url is string %}
+                                    {% set uu = url.strip() %}
+                                    {% if uu.startswith('<') and uu.endswith('>') %}{% set uu = uu[1:-1].strip() %}{% endif %}
+                                    {% set uu = uu.strip().strip('"').strip("'") %}
+                                    {# canonical key: strip query/hash and trailing slash #}
+                                    {% set candidate = uu.split('?')[0].split('#')[0].rstrip('/') %}
+                                    {% if candidate and (candidate not in _seen_vid_candidates) %}
+                                        {% set _seen_vid_candidates = _seen_vid_candidates + [candidate] %}
+                                        {% set _normalized_vids = _normalized_vids + [uu] %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                            {% set vid_list = _normalized_vids %}
+                            {# --- end normalize/dedupe --- #}
+
                             {% if vid_list and vid_list|length > 0 %}
                                 <div class="evidence-videos" aria-label="evidence videos">
                                     {% for v in vid_list %}
                                         {% set vstr = v %}
                                         {% set vcandidate = vstr.split('?')[0].split('#')[0].rstrip('/') %}
                                         {% set vext = vcandidate.rsplit('.',1)[-1]|lower if '.' in vcandidate else '' %}
-                                        <div class="video-item">
+                                        <div class="video-item" data-src="{{ v }}">
                                             {% if vext in ['mp4','webm','ogg','mov'] %}
                                                 <video controls preload="metadata" crossorigin="anonymous">
                                                     <source src="{{ v }}" type="video/{{ vext }}">
@@ -411,6 +429,17 @@
   function injectVideos(card, urls) {
     if (!urls || !urls.length) return [];
     const cont = ensureVideoContainer(card);
+
+    // ---- mark existing video-item wrappers that are missing data-src ----
+    Array.from(cont.querySelectorAll('.video-item')).forEach(el => {
+      if (!el.getAttribute('data-src')) {
+        // prefer <video><source>, then an evidence-link
+        const vidSource = (el.querySelector('video source') && el.querySelector('video source').src) ||
+                          (el.querySelector('a.evidence-link') && el.querySelector('a.evidence-link').href) ||
+                          '';
+        if (vidSource) el.setAttribute('data-src', normalizeUrl(vidSource));
+      }
+    });
 
     // Build set of already-present data-src (reliable even across runs)
     const alreadyPresent = new Set();
@@ -732,7 +761,7 @@
             }
           }
         }
-        if (m.type === 'attributes' && (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
+        if (m.type === 'attributes' and (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
         if (relevant) break;
       }
       if (relevant) scheduleRun();
