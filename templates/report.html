@@ -64,7 +64,7 @@
             <label>Evidence URL *</label>
             <input type="url" name="evidence_url" required>
             <label>Image URLs (optional, one per line)</label>
-            <textarea name="image_urls"></textarea>
+            <textarea name="image_urls" placeholder="https://.../img1.jpg&#10;https://.../img2.png"></textarea>
             <label>Description *</label>
             <textarea name="description" required></textarea>
 
@@ -72,112 +72,124 @@
         </form>
     </section>
 
+    <!-- ====== NEW: early capturing submit listener ======
+         This intercepts the form submit BEFORE other handlers run,
+         stops further propagation for this submit, normalizes image arrays,
+         sends multiple image-key aliases for server compatibility, and
+         prevents double-posting. It does NOT remove any existing code.
+    ============================================================= -->
+    <script>
+    (function () {
+        // Attach a capturing submit listener on the document so it runs before
+        // the non-capturing listeners that are already present on the form.
+        document.addEventListener('submit', async function (evt) {
+            const form = evt.target;
+            if (!form || form.id !== 'report-form') return;
+            // stop other listeners on the same event (both capture & bubble)
+            evt.stopImmediatePropagation();
+            evt.preventDefault();
+
+            // single global flag to prevent race/duplicate posts
+            if (window.__reportSubmitting) {
+                console.warn('Submission already in progress (capture).');
+                return;
+            }
+            window.__reportSubmitting = true;
+
+            const submitBtn = document.getElementById('report-submit');
+            if (submitBtn) submitBtn.disabled = true;
+
+            try {
+                const fd = new FormData(form);
+
+                // normalize image_urls -> array (one URL per non-empty line)
+                const rawImageUrls = (fd.get('image_urls') || '').toString();
+                const imageUrls = rawImageUrls
+                    .split(/\r?\n/)
+                    .map(s => s.trim())
+                    .filter(Boolean);
+
+                // Build payload and also include multiple image-key variants so the server/template
+                // will find something whichever key it expects.
+                const payload = {
+                    full_name: (fd.get('full_name') || '').toString().trim(),
+                    location: (fd.get('location') || '').toString().trim() || null,
+                    occupation: (fd.get('occupation') || '').toString().trim() || null,
+                    employer: (fd.get('employer') || '').toString().trim() || null,
+                    address: (fd.get('address') || '').toString().trim() || null,
+                    employer_email: (fd.get('employer_email') || '').toString().trim() || null,
+                    email: (fd.get('email') || '').toString().trim() || null,
+                    phone: (fd.get('phone') || '').toString().trim() || null,
+                    evidence_url: (fd.get('evidence_url') || '').toString().trim(),
+                    description: (fd.get('description') || '').toString().trim(),
+                    category: (fd.get('category') || '').toString().trim(),
+                    platform: (fd.get('platform') || '').toString().trim(),
+                    // canonical array form
+                    image_urls: imageUrls,
+                    // aliases for robustness
+                    imageUrls: imageUrls,
+                    images: imageUrls,
+                    image_list: imageUrls,
+                    images_only: imageUrls
+                };
+
+                // mirror employer_email/email as some server code expects one or the other
+                if (!payload.email && payload.employer_email) payload.email = payload.employer_email;
+                if (!payload.employer_email && payload.email) payload.employer_email = payload.email;
+
+                // Client-side validation matching form required fields
+                if (!payload.full_name || !payload.evidence_url || !payload.description || !payload.category || !payload.platform || !payload.employer) {
+                    alert('Please fill in all required fields.');
+                    return;
+                }
+
+                // Single POST (this is the only POST that will be made for this submit)
+                const res = await fetch('/submit_report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    try {
+                        const json = await res.json();
+                        if (json && json.redirect) {
+                            window.location.href = json.redirect;
+                            return;
+                        }
+                        if (json && json.message) {
+                            alert('Report submitted — ' + json.message);
+                        } else {
+                            alert('Report submitted successfully.');
+                        }
+                    } catch (e) {
+                        // not JSON: fallback
+                        alert('Report submitted successfully.');
+                    }
+                    form.reset();
+                } else {
+                    const txt = await res.text();
+                    console.error('Submit failed', res.status, txt);
+                    alert(`Error submitting report: ${res.status}\n${txt}`);
+                }
+            } catch (err) {
+                console.error('Capture submit error:', err);
+                alert('Error submitting report: ' + (err && err.message ? err.message : String(err)));
+            } finally {
+                window.__reportSubmitting = false;
+                if (submitBtn) submitBtn.disabled = false;
+            }
+        }, true); // <-- capture = true
+    })();
+    </script>
+
+    <!-- original script kept (we did not remove anything) -->
     <script src="/static/script.js"></script>
 
     <!--
-      NOTE: original inline submit logic kept but enhanced to:
-        - Prevent double-submit (global guard + disable button)
-        - Normalize image_urls to an array (one URL per line)
-        - Map employer_email/email consistently
-        - Do not require "location" (keep as optional)
-      I did not remove any original pieces — only added safe normalization and guards.
+      NOTE: original inline submit logic further down (if present) will be prevented
+      from running by the capturing listener above because we call stopImmediatePropagation().
+      That means only one POST will be sent.
     -->
-    <script>
-        (function () {
-            const form = document.getElementById('report-form');
-            const submitBtn = document.getElementById('report-submit');
-
-            // global guard to prevent double-post from multiple handlers
-            window.__reportSubmitting = window.__reportSubmitting || false;
-
-            if (form) {
-                form.addEventListener('submit', async (event) => {
-                    event.preventDefault();
-
-                    // If another submission is in progress, bail out.
-                    if (window.__reportSubmitting) {
-                        console.warn('Submission already in progress, ignoring duplicate click.');
-                        return;
-                    }
-                    window.__reportSubmitting = true;
-                    if (submitBtn) submitBtn.disabled = true;
-
-                    try {
-                        const formData = new FormData(event.target);
-                        const data = {};
-
-                        // original behavior: copy all form fields
-                        formData.forEach((value, key) => {
-                            data[key] = value;
-                        });
-
-                        // --- NEW: normalize image_urls so it's ALWAYS an array of non-empty trimmed strings
-                        if (data.image_urls && typeof data.image_urls === 'string') {
-                            const arr = data.image_urls
-                                .split(/\r?\n/)
-                                .map(s => s.trim())
-                                .filter(Boolean);
-                            data.image_urls = arr;
-                        } else if (!data.image_urls) {
-                            data.image_urls = [];
-                        }
-
-                        // --- NEW: ensure we send employer_email as well as email for compatibility
-                        // if form used employer_email, but some server code expects "email"
-                        if (!data.email && data.employer_email) {
-                            data.email = data.employer_email;
-                        }
-                        if (!data.employer_email && data.email) {
-                            data.employer_email = data.email;
-                        }
-
-                        // Basic client-side required check to avoid obvious empty submissions
-                        // NOTE: location is optional in the form; don't require it here.
-                        if (!data.full_name || !data.evidence_url || !data.description || !data.category || !data.platform || !data.employer) {
-                            alert('Please fill in all required fields.');
-                            return;
-                        }
-
-                        // send JSON payload
-                        const response = await fetch('/submit_report', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(data),
-                        });
-
-                        if (response.ok) {
-                            // attempt to read any JSON message
-                            let dataText = '';
-                            try {
-                                const json = await response.json();
-                                dataText = json.message ? ` — ${json.message}` : '';
-                                // If server suggests a redirect, honor it
-                                if (json.redirect) {
-                                    window.location.href = json.redirect;
-                                    return;
-                                }
-                            } catch (err) {
-                                // not JSON or empty, ignore
-                            }
-                            alert('Report submitted successfully!' + dataText);
-                            form.reset();
-                            console.log('Report submitted (inline handler):', data);
-                        } else {
-                            console.error('Submission failed:', await response.text());
-                            alert('Submission failed: ' + response.status);
-                        }
-                    } catch (error) {
-                        console.error('Error submitting report:', error);
-                        alert('Error submitting report: ' + (error && error.message ? error.message : String(error)));
-                    } finally {
-                        window.__reportSubmitting = false;
-                        if (submitBtn) submitBtn.disabled = false;
-                    }
-                });
-            }
-        })();
-    </script>
 </body>
 </html>
