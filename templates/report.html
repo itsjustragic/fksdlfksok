@@ -33,7 +33,7 @@
             <input type="text" name="location" placeholder="City, State/Country">
             <label>Occupation</label>
             <input type="text" name="occupation">
-            <label>Employer</label>
+            <label>Employer *</label>
             <input type="text" name="employer" required>
             <label>Address (optional)</label>
             <input type="text" name="address">
@@ -62,9 +62,36 @@
                 <option>Other</option>
             </select>
             <label>Evidence URL *</label>
-            <input type="url" name="evidence_url" required>
+            <input type="url" id="evidence_url" name="evidence_url" required placeholder="https://x.com/…/status/12345 or any post URL">
             <label>Image URLs (optional, one per line)</label>
             <textarea name="image_urls" placeholder="https://.../img1.jpg&#10;https://.../img2.png"></textarea>
+
+            <h3>SOCIAL MEDIA & VIDEO</h3>
+            <p style="margin-top:0.25rem; margin-bottom:0.5rem; color:#666; font-size:0.95rem;">
+                Add profile links / direct video URLs if available. Example direct Twitter video URL:
+                <code style="display:inline-block; font-size:0.85rem; padding:2px 6px; background:#f3f3f3; border-radius:4px;">
+                https://video.twimg.com/amplify_video/1969736242368552960/vid/avc1/576x1024/6fR8lthsMqz_OdLZ.mp4?tag=21
+                </code>
+            </p>
+
+            <label>Twitter / X profile or post URL</label>
+            <input type="url" name="twitter_url" placeholder="https://x.com/username or https://x.com/.../status/123">
+            <label>Instagram profile or post URL</label>
+            <input type="url" name="instagram_url" placeholder="https://instagram.com/username or post URL">
+            <label>Facebook profile or post URL</label>
+            <input type="url" name="facebook_url" placeholder="https://facebook.com/...">
+            <label>TikTok profile or post URL</label>
+            <input type="url" name="tiktok_url" placeholder="https://www.tiktok.com/@user/...">
+            <label>YouTube / Short URL</label>
+            <input type="url" name="youtube_url" placeholder="https://www.youtube.com/watch?v=... or short link">
+            <label>Other social link(s) (optional, one per line)</label>
+            <textarea name="other_socials" placeholder="https://example.com/profile1&#10;https://example.com/post"></textarea>
+
+            <label>Direct video URL (single, optional)</label>
+            <input type="url" name="video_url" id="video_url" placeholder="https://video.twimg.com/.../vid/.../file.mp4?tag=21">
+            <label>Direct video URLs (optional, one per line)</label>
+            <textarea name="video_urls" placeholder="https://video.twimg.com/...mp4?tag=21&#10;https://cdn.example.com/video.webm"></textarea>
+
             <label>Description *</label>
             <textarea name="description" required></textarea>
 
@@ -72,14 +99,30 @@
         </form>
     </section>
 
-    <!-- ====== NEW: early capturing submit listener ======
-         This intercepts the form submit BEFORE other handlers run,
-         stops further propagation for this submit, normalizes image arrays,
-         sends multiple image-key aliases for server compatibility, and
-         prevents double-posting. It does NOT remove any existing code.
-    ============================================================= -->
+    <!-- ====== NEW: early capturing submit listener (updated to include social + video fields) ====== -->
     <script>
     (function () {
+        // helper: cheaply detect likely direct-video URLs
+        function looksLikeVideoUrl(u) {
+            if (!u) return false;
+            try {
+                u = u.toString().trim();
+            } catch (e) { return false; }
+            // common video file extensions or well-known video hosts
+            const videoExt = /\.(mp4|webm|mkv|mov|avi|m3u8|ts)(?:[?#].*)?$/i;
+            const videoHosts = [
+                'video.twimg.com', 'vimeo.com', 'cdn', 'akamai', 'youtube.com', 'youtu.be',
+                'facebook.com', 'fbcdn.net', 'cloudfront.net', 'streamable.com', 'cdninstagram.com'
+            ];
+            if (videoExt.test(u)) return true;
+            try {
+                const host = (new URL(u)).hostname || '';
+                return videoHosts.some(h => host.indexOf(h) !== -1);
+            } catch (e) {
+                return false;
+            }
+        }
+
         // Attach a capturing submit listener on the document so it runs before
         // the non-capturing listeners that are already present on the form.
         document.addEventListener('submit', async function (evt) {
@@ -109,7 +152,23 @@
                     .map(s => s.trim())
                     .filter(Boolean);
 
-                // Build payload and also include multiple image-key variants so the server/template
+                // normalize video_urls -> array (one URL per non-empty line)
+                const rawVideoUrls = (fd.get('video_urls') || '').toString();
+                const videoUrlsList = rawVideoUrls
+                    .split(/\r?\n/)
+                    .map(s => s.trim())
+                    .filter(Boolean);
+
+                // single video_url if provided
+                let singleVideo = (fd.get('video_url') || '').toString().trim() || null;
+
+                // if the evidence_url itself looks like a direct video and no singleVideo provided -> auto-fill
+                const evidenceVal = (fd.get('evidence_url') || '').toString().trim() || null;
+                if (!singleVideo && evidenceVal && looksLikeVideoUrl(evidenceVal)) {
+                    singleVideo = evidenceVal;
+                }
+
+                // Build payload and also include multiple video-key aliases so the server/template
                 // will find something whichever key it expects.
                 const payload = {
                     full_name: (fd.get('full_name') || '').toString().trim(),
@@ -120,22 +179,44 @@
                     employer_email: (fd.get('employer_email') || '').toString().trim() || null,
                     email: (fd.get('email') || '').toString().trim() || null,
                     phone: (fd.get('phone') || '').toString().trim() || null,
-                    evidence_url: (fd.get('evidence_url') || '').toString().trim(),
+                    evidence_url: evidenceVal,
                     description: (fd.get('description') || '').toString().trim(),
                     category: (fd.get('category') || '').toString().trim(),
                     platform: (fd.get('platform') || '').toString().trim(),
-                    // canonical array form
+
+                    // social media fields (new)
+                    twitter_url: (fd.get('twitter_url') || '').toString().trim() || null,
+                    instagram_url: (fd.get('instagram_url') || '').toString().trim() || null,
+                    facebook_url: (fd.get('facebook_url') || '').toString().trim() || null,
+                    tiktok_url: (fd.get('tiktok_url') || '').toString().trim() || null,
+                    youtube_url: (fd.get('youtube_url') || '').toString().trim() || null,
+                    other_socials: (fd.get('other_socials') || '').toString().split(/\r?\n/).map(s => s.trim()).filter(Boolean),
+
+                    // canonical array form for images
                     image_urls: imageUrls,
                     // aliases for robustness
                     imageUrls: imageUrls,
                     images: imageUrls,
                     image_list: imageUrls,
-                    images_only: imageUrls
+                    images_only: imageUrls,
+
+                    // video fields (new)
+                    video_url: singleVideo,
+                    video_urls: videoUrlsList,
+                    videoUrls: videoUrlsList,
+                    videos: videoUrlsList
                 };
 
                 // mirror employer_email/email as some server code expects one or the other
                 if (!payload.email && payload.employer_email) payload.email = payload.employer_email;
                 if (!payload.employer_email && payload.email) payload.employer_email = payload.email;
+
+                // If singleVideo is provided but not in video_urls list, ensure it is present
+                if (payload.video_url && payload.video_url.length && payload.video_urls.indexOf(payload.video_url) < 0) {
+                    payload.video_urls.push(payload.video_url);
+                    payload.videoUrls = payload.video_urls;
+                    payload.videos = payload.video_urls;
+                }
 
                 // Client-side validation matching form required fields
                 if (!payload.full_name || !payload.evidence_url || !payload.description || !payload.category || !payload.platform || !payload.employer) {
@@ -188,7 +269,7 @@
 
     <!--
       NOTE: original inline submit logic further down (if present) will be prevented
-      from running by the capturing listener above because we call stopImmediatePropagation().
+      from running by the capturing listener above because we call stopImmediatePropagation(). 
       That means only one POST will be sent.
     -->
 </body>
