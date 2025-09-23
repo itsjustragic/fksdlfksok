@@ -211,25 +211,25 @@
 </div>
 
 <script>
-/* --- patch: smarter injection + "View evidence" click-to-open --- */
-(function(){
+(function () {
   'use strict';
+
   const IMG_EXT_RE = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i;
   const HTTP_IMG_TOKEN_RE = /\bhttps?:\/\/[^\s'"]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#][^\s'"]*)?/gi;
+  const DEBOUNCE_MS = 120;
 
-  /* reuse/duplicate your normalize/parse/extract/inject functions (or if they already exist in the file, remove duplicates) */
-  function normalizeUrl(u){
-    if (!u || typeof u !== 'string') return '';
-    u = u.trim();
-    if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1,-1).trim();
-    if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1,-1).trim();
-    return u;
+  function normalizeUrl(u) {
+    if (!u) return '';
+    u = ('' + u).trim();
+    if (u.startsWith('<') && u.endsWith('>')) u = u.slice(1, -1).trim();
+    if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) u = u.slice(1, -1);
+    return u.trim();
   }
 
-  function parseJsonPayloadForId(id){
-    const script = document.querySelector('script[type="application/json"][data-report-images-for="'+String(id)+'"]');
+  function extractFromScriptPayload(card) {
+    const script = card.querySelector('script[type="application/json"][data-report-images-for]');
     if (!script) return [];
-    const txt = script.textContent || '';
+    const txt = script.textContent || '[]';
     try {
       const parsed = JSON.parse(txt);
       if (Array.isArray(parsed)) return parsed.map(normalizeUrl).filter(Boolean);
@@ -241,21 +241,26 @@
     }
   }
 
-  function extractFromDom(card){
+  function extractFromDOM(card) {
     const found = new Set();
+    // existing images
     Array.from(card.querySelectorAll('img')).forEach(img => { if (img.src) found.add(normalizeUrl(img.src)); });
+    // links
     Array.from(card.querySelectorAll('a[href]')).forEach(a => {
       const href = a.getAttribute('href') || '';
       if (IMG_EXT_RE.test(href)) found.add(normalizeUrl(href));
-      try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch(e){}
+      try { if (a.href && IMG_EXT_RE.test(a.href)) found.add(normalizeUrl(a.href)); } catch (e) {}
     });
-    const text = card.textContent || '';
-    const tokens = text.match(HTTP_IMG_TOKEN_RE) || [];
-    tokens.forEach(t => found.add(normalizeUrl(t)));
+    // scan text for urls
+    const text = card.innerText || card.textContent || '';
+    let match;
+    while ((match = HTTP_IMG_TOKEN_RE.exec(text)) !== null) {
+      found.add(normalizeUrl(match[0]));
+    }
     return Array.from(found);
   }
 
-  function ensureGallery(card){
+  function ensureGallery(card) {
     let g = card.querySelector('.evidence-gallery');
     if (!g) {
       g = document.createElement('div');
@@ -266,7 +271,7 @@
     return g;
   }
 
-  function injectImages(card, urls){
+  function injectImages(card, urls) {
     if (!urls || !urls.length) return [];
     const gallery = ensureGallery(card);
     const existing = new Set(Array.from(gallery.querySelectorAll('img')).map(i => i.src));
@@ -289,118 +294,181 @@
     return injected;
   }
 
-  /* lightbox wiring (very small; assumes lightbox HTML exists) */
+  /* Lightbox wiring (assumes your lightbox DOM exists) */
   const lightbox = document.getElementById('lightbox');
-  const lightboxImg = document.getElementById('lightbox-img');
-  const caption = document.getElementById('lightbox-caption');
-  const prevBtn = document.querySelector('.lightbox-arrow.left');
-  const nextBtn = document.querySelector('.lightbox-arrow.right');
-  const closeBtn = document.querySelector('.lightbox-close');
+  const lbImg = document.getElementById('lightbox-img');
+  const lbCaption = document.getElementById('lightbox-caption');
+  const btnPrev = document.querySelector('.lightbox-arrow.left');
+  const btnNext = document.querySelector('.lightbox-arrow.right');
+  const btnClose = document.querySelector('.lightbox-close');
 
   let currentGallery = [];
   let currentIndex = 0;
-  function openGallery(g, idx){
-    currentGallery = g.slice();
-    currentIndex = Math.max(0, Math.min(idx || 0, currentGallery.length - 1));
-    lightboxImg.src = currentGallery[currentIndex];
-    lightboxImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
-    caption.textContent = lightboxImg.alt;
-    lightbox.classList.add('visible');
-    lightbox.setAttribute('aria-hidden','false');
-    if (prevBtn && nextBtn) {
-      if (currentGallery.length > 1) { prevBtn.style.display = 'flex'; nextBtn.style.display = 'flex'; } else { prevBtn.style.display='none'; nextBtn.style.display='none'; }
+  function showLightbox(gallery, index) {
+    if (!gallery || !gallery.length) return;
+    currentGallery = gallery.slice();
+    currentIndex = Math.max(0, Math.min(index || 0, currentGallery.length - 1));
+    if (lbImg) lbImg.src = currentGallery[currentIndex];
+    if (lbImg) lbImg.alt = 'Image ' + (currentIndex + 1) + ' of ' + currentGallery.length;
+    if (lbCaption) lbCaption.textContent = lbImg.alt || '';
+    if (lightbox) { lightbox.classList.add('visible'); lightbox.setAttribute('aria-hidden', 'false'); }
+    if (btnPrev && btnNext) {
+      if (currentGallery.length > 1) { btnPrev.style.display = 'flex'; btnNext.style.display = 'flex'; } else { btnPrev.style.display='none'; btnNext.style.display='none'; }
     }
   }
-  function closeLightbox(){ if (!lightbox) return; lightbox.classList.remove('visible'); lightbox.setAttribute('aria-hidden','true'); lightboxImg.src = ''; currentGallery = []; currentIndex = 0; }
-  function prev(){ if (currentGallery.length<=1) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; lightboxImg.src=currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
-  function next(){ if (currentGallery.length<=1) return; currentIndex=(currentIndex+1)%currentGallery.length; lightboxImg.src=currentGallery[currentIndex]; caption.textContent = lightboxImg.alt = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+  function hideLightbox() {
+    if (!lightbox) return;
+    lightbox.classList.remove('visible');
+    lightbox.setAttribute('aria-hidden','true');
+    if (lbImg) lbImg.src = '';
+    currentGallery = [];
+    currentIndex = 0;
+  }
+  function showPrev() { if (!currentGallery.length) return; currentIndex=(currentIndex-1+currentGallery.length)%currentGallery.length; if (lbImg) lbImg.src=currentGallery[currentIndex]; if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
+  function showNext() { if (!currentGallery.length) return; currentIndex=(currentIndex+1)%currentGallery.length; if (lbImg) lbImg.src=currentGallery[currentIndex]; if (lbCaption) lbCaption.textContent = 'Image ' + (currentIndex+1) + ' of ' + currentGallery.length; }
 
-  if (prevBtn) prevBtn.addEventListener('click', prev);
-  if (nextBtn) nextBtn.addEventListener('click', next);
-  if (closeBtn) closeBtn.addEventListener('click', closeLightbox);
-  if (lightbox) lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
-  document.addEventListener('keydown', e => { if (!lightbox || !lightbox.classList.contains('visible')) return; if (e.key === 'Escape') closeLightbox(); if (e.key === 'ArrowLeft') prev(); if (e.key === 'ArrowRight') next(); });
+  if (btnPrev) btnPrev.addEventListener('click', showPrev);
+  if (btnNext) btnNext.addEventListener('click', showNext);
+  if (btnClose) btnClose.addEventListener('click', hideLightbox);
+  if (lightbox) lightbox.addEventListener('click', function (ev) { if (ev.target === lightbox) hideLightbox(); });
+  document.addEventListener('keydown', function (ev) {
+    if (!lightbox || !lightbox.classList.contains('visible')) return;
+    if (ev.key === 'Escape') hideLightbox();
+    if (ev.key === 'ArrowLeft') showPrev();
+    if (ev.key === 'ArrowRight') showNext();
+  });
 
-  /* NEW: smarter run that only skips when gallery/thumbs already exist */
-  function runOnce(){
+  /* main gather/inject function */
+  function gatherAndInjectAll() {
     const cards = Array.from(document.querySelectorAll('.report-card'));
+    if (!cards.length) { console.debug('image-fixer: no .report-card found'); }
     cards.forEach(card => {
-      // skip if there's already a gallery or injected thumbs
-      if (card.querySelector('.evidence-gallery') || card.querySelector('.thumb')) return;
+      try {
+        // skip if the card already has a gallery or injected thumbs
+        if (card.querySelector('.evidence-gallery') || card.querySelector('.thumb')) return;
 
-      // determine id (report id)
-      let id = card.getAttribute('data-id') || '';
-      if (!id) {
-        const header = card.querySelector('[id^="r-"],[id^="p-"]');
-        if (header && header.id) id = header.id.replace(/^r-|^p-/, '');
+        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,'')) || '';
+        const fromScript = extractFromScriptPayload(card);
+        const fromDom = extractFromDOM(card);
+        const combined = Array.from(new Set(Array.prototype.concat(fromScript, fromDom)));
+        const images = combined.filter(u => IMG_EXT_RE.test(u));
+        if (!images.length) return;
+        console.info('image-fixer: found images for', id || '(no id)', images);
+        gatherAndInjectAll._injected = gatherAndInjectAll._injected || 0;
+        const injected = injectImages(card, images);
+        gatherAndInjectAll._injected += injected.length;
+        if (injected.length) console.info('image-fixer: injected', injected.length, 'images for', id || '(no id)');
+      } catch (e) {
+        console.error('image-fixer: error processing card', card, e);
       }
-
-      // parse JSON payload and DOM tokens
-      const payload = id ? parseJsonPayloadForId(id) : [];
-      const dom = extractFromDom(card);
-      const combined = Array.from(new Set((payload.concat(dom)).map(normalizeUrl).filter(Boolean)));
-      const images = combined.filter(u => IMG_EXT_RE.test(u));
-      if (images.length) injectImages(card, images);
     });
+  }
 
-    // wire delegated click for thumbs that may be injected later
-    document.removeEventListener('click', document.__evidenceClickHandler||function(){});
-    document.__evidenceClickHandler = function(ev){
-      const t = ev.target;
-      if (!t || !t.classList) return;
-      if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
+  /* delegated click handler for thumbs / evidence-image / evidence-link */
+  function delegatedClickHandler(ev) {
+    const t = ev.target;
+    if (!t || !t.classList) return;
+    if (!(t.classList.contains('thumb') || t.classList.contains('evidence-image') || t.classList.contains('evidence-link'))) return;
 
-      // if it's the "View evidence" link, prevent default and open gallery
-      if (t.classList.contains('evidence-link')) {
-        ev.preventDefault();
-        const card = t.closest('.report-card');
-        if (!card) { window.open(t.href, '_blank'); return; }
-
-        const id = card.getAttribute('data-id') || (card.querySelector('[id^="r-"],[id^="p-"]') && (card.querySelector('[id^="r-"],[id^="p-"]').id || '').replace(/^r-|^p-/,''));
-        let gallery = id ? parseJsonPayloadForId(id) : [];
-        // fallback to DOM tokens
-        if (!gallery.length) {
-          gallery = extractFromDom(card).filter(u => IMG_EXT_RE.test(u));
-        }
-        if (!gallery.length) {
-          // nothing we can show — open link in new tab
-          window.open(t.href, '_blank');
-          return;
-        }
-        // ensure thumbnails exist in the card and open lightbox
-        injectImages(card, gallery);
-        // prefer images found in DOM order (thumbs/evidence-image) for index mapping
-        const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
-        openGallery(imgs.length ? imgs : gallery, 0);
-        return;
-      }
-
-      // thumb or evidence-image clicked -> open the card gallery
+    // if it's an evidence link, prevent navigation and open gallery instead
+    if (t.classList.contains('evidence-link')) {
+      ev.preventDefault();
       const card = t.closest('.report-card');
-      if (!card) return;
+      if (!card) { window.open(t.href, '_blank'); return; }
+
+      const id = card.getAttribute('data-id') || '';
+      let gallery = id ? extractFromScriptPayload(card) : [];
+      if (!gallery.length) gallery = extractFromDOM(card).filter(u => IMG_EXT_RE.test(u));
+      if (!gallery.length) { window.open(t.href, '_blank'); return; }
+      injectImages(card, gallery);
       const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
-      if (imgs.length) {
-        let idx = imgs.indexOf(t.src || t.getAttribute('src') || '');
-        if (idx === -1) idx = 0;
-        openGallery(imgs, idx);
-      } else {
-        // fallback: try payload
-        const id = card.getAttribute('data-id') || '';
-        const gallery = id ? parseJsonPayloadForId(id) : [];
-        if (gallery.length) openGallery(gallery, 0);
+      showLightbox(imgs.length ? imgs : gallery, 0);
+      return;
+    }
+
+    // thumb or evidence-image clicked
+    const card = t.closest('.report-card');
+    if (!card) return;
+    const imgs = Array.from(card.querySelectorAll('.evidence-image, .thumb')).map(i => i.src).filter(Boolean);
+    if (imgs.length) {
+      let idx = imgs.indexOf(t.src || t.getAttribute('src') || '');
+      if (idx === -1) idx = 0;
+      showLightbox(imgs, idx);
+      return;
+    }
+    // fallback to script payload
+    const id = card.getAttribute('data-id') || '';
+    const payload = id ? extractFromScriptPayload(card) : [];
+    if (payload.length) showLightbox(payload, 0);
+  }
+  // ensure only one delegated handler
+  try { document.removeEventListener('click', document.__image_fixer_click); } catch (e) {}
+  document.__image_fixer_click = delegatedClickHandler;
+  document.addEventListener('click', document.__image_fixer_click);
+
+  /* Debounced runner for MutationObserver */
+  let debounceTimer = null;
+  function scheduleRun() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { try { gatherAndInjectAll(); } catch(e){console.error(e);} }, DEBOUNCE_MS);
+  }
+
+  /* MutationObserver: watch for added/changed report cards (subtree) */
+  function startObserver() {
+    const target = document.querySelector('.reports-grid') || document.body;
+    if (!target) return;
+    const observer = new MutationObserver(mutations => {
+      let relevant = false;
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length) {
+          for (const n of m.addedNodes) {
+            if (n.nodeType === 1 && (n.matches && n.matches('.report-card') || n.querySelector && n.querySelector('.report-card'))) {
+              relevant = true; break;
+            }
+          }
+        }
+        if (m.type === 'attributes' && (m.target && (m.target.matches && m.target.matches('.report-card')))) { relevant = true; break; }
+        if (relevant) break;
       }
-    };
-    document.addEventListener('click', document.__evidenceClickHandler);
+      if (relevant) scheduleRun();
+    });
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class', 'src'] });
+    // keep reference so it can be disconnected in devtools
+    window.__image_fixer_observer = observer;
   }
 
-  /* run on DOM ready */
+  /* initial startup: try to run a few times (polling fallback) to survive race conditions */
+  function startup() {
+    gatherAndInjectAll();
+    // try a couple more times in case something re-renders shortly after load
+    let tries = 0;
+    const intId = setInterval(() => {
+      tries++;
+      gatherAndInjectAll();
+      if (tries > 6) clearInterval(intId);
+    }, 400);
+    // start observer to catch later mutations (e.g., SPA re-render or script.js DOM replacement)
+    startObserver();
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', runOnce);
+    document.addEventListener('DOMContentLoaded', startup);
   } else {
-    setTimeout(runOnce, 10);
+    setTimeout(startup, 10);
   }
 
-  window.__unified_image_fixer = { run: runOnce, parseJsonPayloadForId: parseJsonPayloadForId, injectImages: injectImages };
+  /* Expose manual hooks for debugging in console */
+  window.__image_fixer = {
+    run: gatherAndInjectAll,
+    schedule: scheduleRun,
+    startObserver,
+    normalizeUrl,
+    extractFromDOM,
+    extractFromScriptPayload
+  };
+
+  console.info('image-fixer: bootstrap installed');
+
 })();
 </script>
 
@@ -410,4 +478,5 @@
 
 </body>
 </html>
+
 
