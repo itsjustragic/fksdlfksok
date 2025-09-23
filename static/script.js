@@ -105,10 +105,6 @@
             // timing check using debugger; when devtools open the `debugger` can cause a blocking pause
             try {
                 const start = performance.now();
-                // The `debugger` statement will pause when devtools are open and configured to pause on "debugger" statements.
-                // It's noisy and not always reliable, but combined with size heuristic gives better coverage.
-                // We avoid using a raw `debugger;` because it will halt JS when devtools are open and user has selected pause-on-exceptions.
-                // Instead, we use Function constructor to call debugger in an isolated function to reduce accidental pausing.
                 (new Function('/* anti-inspect-timing */')).call(null);
                 const end = performance.now();
                 return (end - start) > 100; // if slowed down significantly, assume devtools
@@ -150,14 +146,12 @@
     })();
 
     // 4) Warn/refresh if DevTools console is opened by using toString detection (older trick)
-    //    Combined with above; kept lightweight to avoid CPU overhead.
     (function consoleTrap() {
         try {
             const element = new Image();
             let triggered = false;
             Object.defineProperty(element, 'id', {
                 get: function () {
-                    // someone logging the image to console will trigger this getter
                     if (!triggered) {
                         triggered = true;
                         RELOAD();
@@ -165,14 +159,8 @@
                     return 'anti-inspect';
                 }
             });
-            // periodically log this image subtly — if the console prints it, getter runs.
             setInterval(function () {
                 try {
-                    // Clear any silent console interception by extensions by not directly calling console.log in some browsers,
-                    // but writing to console is still common — we use a non-obvious pattern.
-                    // If console is open and user inspects logged objects, the getter will run.
-                    // Note: this is noisy to console detection and not guaranteed, combined with other checks.
-                    // eslint-disable-next-line no-console
                     console.log(element);
                 } catch (e) {}
             }, 2000);
@@ -180,7 +168,6 @@
     })();
 
     // 5) Mutation observer: if someone injects elements commonly used by extensions (e.g. devtools extensions)
-    //    attempt a reload. This is broad and conservative and may reload pages on extension manipulations.
     (function mutationGuard() {
         try {
             const observer = new MutationObserver((mutations) => {
@@ -191,7 +178,6 @@
                             if (!n) continue;
                             if (n.nodeType === 1) {
                                 const tag = (n.tagName || '').toLowerCase();
-                                // heuristic: extension/devtools panels sometimes inject iframes, devtools-specific ids/classes
                                 if (tag === 'iframe' || tag === 'inspector' || (n.id && /devtools|inspector|extension/i.test(n.id)) || (n.className && /devtools|inspector|extension/i.test(n.className))) {
                                     RELOAD();
                                     return;
@@ -205,7 +191,6 @@
         } catch (err) {}
     })();
 
-    // 6) defensive: if the URL was opened by someone using view-source:, force reload without that scheme
     try {
         if (window.location && window.location.protocol === 'view-source:') {
             RELOAD();
@@ -883,7 +868,8 @@ window.denyReport = async (reportId) => {
             let location = '', platform = '', occupation = '', employer = '';
             const meta = card.querySelector('.meta');
             if (meta) {
-                const items = Array.from(meta.querySelectorAll('.meta-item, span')).map(s => s.textContent.trim()).filter(Boolean);
+                // FIX: only look at meta-item entries (avoid grabbing the separator •)
+                const items = Array.from(meta.querySelectorAll('.meta-item')).map(s => s.textContent.trim()).filter(Boolean);
                 if (items.length >= 1) location = items[0];
                 if (items.length >= 2) platform = items[1];
             } else {
@@ -934,6 +920,15 @@ window.denyReport = async (reportId) => {
             if (existingFull) card.setAttribute('data-state-full', existingFull);
             else if (!card.hasAttribute('data-state-full')) card.setAttribute('data-state-full', '');
             card.setAttribute('data-annotated', '1');
+
+            // debug: expose annotation for quick console checks
+            // (useful when diagnosing filter mismatches: open console and inspect card.dataset)
+            // console.debug('annotated card', card.getAttribute('data-id') || '(no id)', {
+            //     fullname: card.getAttribute('data-fullname'),
+            //     location: card.getAttribute('data-location'),
+            //     state: card.getAttribute('data-state'),
+            //     stateFull: card.getAttribute('data-state-full')
+            // });
         } catch (e) {
             console.warn('annotateCard error', e);
         }
