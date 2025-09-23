@@ -6,32 +6,57 @@ document.addEventListener('DOMContentLoaded', () => {
     if (reportForm) {
         reportForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            // --- ADD: guard to prevent double-submits from multiple handlers / clicks ---
+            if (window.__reportSubmitting) {
+                console.warn('Submission already in progress (script.js handler). Ignoring duplicate.');
+                return;
+            }
+            window.__reportSubmitting = true;
+
+            // disable the submit button if present
+            const submitBtn = document.getElementById('report-submit');
+            if (submitBtn) submitBtn.disabled = true;
+
             try {
                 const formData = new FormData(reportForm);
 
-                // Safely read image_urls (may be null)
+                // Safely read image_urls (may be null) and normalize into an array
                 const rawImageUrls = formData.get('image_urls') || '';
-                const imageUrls = rawImageUrls
-                    .split('\n')
+                const imageUrls = (typeof rawImageUrls === 'string' ? rawImageUrls : '')
+                    .split(/\r?\n/)
                     .map(u => u.trim())
                     .filter(url => url !== '');
 
                 const report = {
-                    full_name: (formData.get('full_name') || '').trim(),
-                    location: (formData.get('location') || '').trim(),
-                    occupation: (formData.get('occupation') || '').trim() || null,
-                    employer: (formData.get('employer') || '').trim() || null,
-                    evidence_url: (formData.get('evidence_url') || '').trim(),
-                    description: (formData.get('description') || '').trim(),
+                    full_name: (formData.get('full_name') || '').toString().trim(),
+                    location: (formData.get('location') || '').toString().trim(),
+                    occupation: (formData.get('occupation') || '').toString().trim() || null,
+                    employer: (formData.get('employer') || '').toString().trim() || null,
+                    evidence_url: (formData.get('evidence_url') || '').toString().trim(),
+                    description: (formData.get('description') || '').toString().trim(),
                     image_urls: imageUrls,
-                    email: (formData.get('email') || '').trim() || null,
-                    category: (formData.get('category') || '').trim(),
-                    platform: (formData.get('platform') || '').trim()
+                    // NOTE: original form uses 'employer_email' name. Some code expects 'email' — send both if available.
+                    employer_email: (formData.get('employer_email') || '').toString().trim() || null,
+                    email: (formData.get('email') || '').toString().trim() || null,
+                    category: (formData.get('category') || '').toString().trim(),
+                    platform: (formData.get('platform') || '').toString().trim()
                 };
 
+                // Keep backward compatibility: if only employer_email is provided, also populate email
+                if (!report.email && report.employer_email) {
+                    report.email = report.employer_email;
+                }
+                if (!report.employer_email && report.email) {
+                    report.employer_email = report.email;
+                }
+
                 // Basic client-side required check to avoid obvious empty submissions
-                if (!report.full_name || !report.location || !report.evidence_url || !report.description || !report.category || !report.platform) {
+                // NOTE: location field is optional in the form; do not require it here.
+                if (!report.full_name || !report.evidence_url || !report.description || !report.category || !report.platform || !report.employer) {
                     alert('Please fill in all required fields.');
+                    window.__reportSubmitting = false;
+                    if (submitBtn) submitBtn.disabled = false;
                     return;
                 }
 
@@ -47,6 +72,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     try {
                         const json = await response.json();
                         dataText = json.message ? ` — ${json.message}` : '';
+                        if (json && json.redirect) {
+                            window.location.href = json.redirect;
+                            return;
+                        }
                     } catch (err) {
                         // not JSON or empty, ignore
                     }
@@ -62,6 +91,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 console.error('Error during submit handler:', err);
                 alert('Error: ' + (err && err.message ? err.message : String(err)));
+            } finally {
+                // re-enable submit
+                window.__reportSubmitting = false;
+                if (submitBtn) submitBtn.disabled = false;
             }
         });
     }
