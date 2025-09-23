@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from typing import List, Dict, Optional, Tuple
 import uuid
@@ -16,6 +17,7 @@ import re
 import time
 import random
 from urllib.parse import urlencode
+from datetime import datetime
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -218,9 +220,34 @@ def submit_report(report: Dict = Body(...)):
 
 # ----------------------------
 @app.post("/approve/{report_id}")
-def approve(request: Request, report_id: str):
+async def approve(request: Request, report_id: str):
+    # require admin session
     if not request.session.get("admin"):
         raise HTTPException(status_code=404, detail="Not found")
+
+    # Try to read posted state if sent (either form-data or JSON)
+    posted_state = ''
+    try:
+        content_type = (request.headers.get("content-type") or "").lower()
+        if content_type.startswith("application/json"):
+            body = await request.json()
+            if isinstance(body, dict):
+                posted_state = (body.get("state") or "").strip().upper()
+        else:
+            form = await request.form()
+            posted_state = (form.get("state") or "").strip().upper()
+    except Exception:
+        posted_state = ''
+
+    # Allowed states set for validation
+    ALLOWED_STATES = {
+        'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+        'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+        'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+    }
+    if posted_state and posted_state not in ALLOWED_STATES:
+        # invalid posted state -> ignore it
+        posted_state = ''
 
     for i, r in enumerate(pending_reports):
         if r['id'] == report_id:
@@ -250,10 +277,40 @@ def approve(request: Request, report_id: str):
                     approved['state_full'] = st_name
             except Exception:
                 # ignore parse failures
-                pass
+                st_abbr, st_name = None, None
 
-            # -------------------------
+            # If client posted a state, prefer it (override or set)
+            if posted_state:
+                approved['state'] = posted_state
+                # set full name if possible
+                # build simple map for lookup
+                REVERSE_MAP = {
+                    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+                    'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+                    'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+                    'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+                    'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+                    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+                    'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+                    'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+                    'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+                    'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+                    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+                    'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+                    'WI': 'Wisconsin', 'WY': 'Wyoming'
+                }
+                approved['state_full'] = approved.get('state_full') or REVERSE_MAP.get(posted_state)
+
+            # Stamp approved metadata
+            approved['approved_at'] = datetime.utcnow().isoformat() + 'Z'
             approved_reports.append(approved)
+
+            # If this looks like an AJAX/Fetch call, return JSON so front-end can update without redirect.
+            accept = (request.headers.get("accept") or "").lower()
+            xreq = request.headers.get("x-requested-with", "").lower()
+            if request.headers.get("content-type", "").lower().startswith("application/json") or "application/json" in accept or xreq == "xmlhttprequest":
+                return JSONResponse({"ok": True, "id": report_id, "state": approved.get('state', '')})
+            # Otherwise redirect back to admin pending page (existing behavior)
             return RedirectResponse("/admin/pending", status_code=303)
 
     raise HTTPException(status_code=404, detail="Report not found")
