@@ -1,6 +1,6 @@
 # main.py - FastAPI backend with Jinja templates
 
-from fastapi import FastAPI, HTTPException, Body, Request, Form, request
+from fastapi import FastAPI, HTTPException, Body, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -206,5 +206,6 @@ def admin_pending(request: Request):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 
