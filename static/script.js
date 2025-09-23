@@ -520,15 +520,12 @@ window.denyReport = async (reportId) => {
     }
 })();
 
-/* ====== Non-destructive: robust filter/search compatibility patch ======
+/* ====== Non-destructive: robust filter/search compatibility patch (FIXED state-only filtering) ======
    This appended block will:
-   - Wire search and state filtering for both
-       * pages that already include controls (#reports-search/#reports-state)
-       * pages where the JS must insert controls (#reports-search-input/#reports-state-select)
-   - Annotate .report-card nodes with data-* attrs used for fast filtering
-   - Populate the state select with 50 states if needed
-   - Observe DOM mutations & re-run filtering
-   This is intentionally additive and preserves everything above.
+   - Always operate over all .report-card elements (avoid container mismatch)
+   - Populate and normalize state selection (match abbr or full name)
+   - Annotate cards with data-state (abbr) and data-state-full (full name) for reliable matching
+   - Observe DOM changes and re-run filter
 ====================================================================== */
 
 (function() {
@@ -565,7 +562,11 @@ window.denyReport = async (reportId) => {
         return null;
     }
 
-    // Find the primary reports container (server uses #reports-grid in your page)
+    // always use global .report-card list to avoid container mismatch
+    function allReportCards() {
+        return Array.from(document.querySelectorAll('.report-card'));
+    }
+
     function getReportsContainer() {
         return document.getElementById('reports-list') ||
                document.getElementById('reports-grid') ||
@@ -573,22 +574,16 @@ window.denyReport = async (reportId) => {
                null;
     }
 
-    // Find or create controls; if the page already provides inputs use them
     function findControlsOrCreate() {
-        // prefer existing IDs used in your page
         let searchInput = document.getElementById('reports-search') || document.getElementById('reports-search-input');
         let stateSelect = document.getElementById('reports-state') || document.getElementById('reports-state-select');
-        let noResultsEl = document.getElementById('no-results') || document.getElementById('reports-no-results');
+        let noResultsEl = document.getElementById('no-results') || document.getElementById('reports-no-results') || document.getElementById('reports-no-results');
 
         const reportsContainer = getReportsContainer();
         if (!reportsContainer) return {searchInput, stateSelect, noResultsEl};
 
-        // if page already included controls (#reports-search/#reports-state) we won't insert duplicates
-        if (searchInput && stateSelect) {
-            return { searchInput, stateSelect, noResultsEl };
-        }
+        if (searchInput && stateSelect) return { searchInput, stateSelect, noResultsEl };
 
-        // otherwise try to use the panel inserted by previous appended code (id reports-filter-panel)
         const injectedPanel = document.getElementById('reports-filter-panel');
         if (injectedPanel) {
             searchInput = searchInput || document.getElementById('reports-search-input');
@@ -597,7 +592,7 @@ window.denyReport = async (reportId) => {
             return { searchInput, stateSelect, noResultsEl };
         }
 
-        // If no existing controls, inject a lightweight panel before the reports container
+        // create minimal panel (non-destructive)
         const panel = document.createElement('div');
         panel.id = 'reports-filter-panel';
         panel.style.margin = '12px 0';
@@ -634,9 +629,7 @@ window.denyReport = async (reportId) => {
         });
         panel.appendChild(clearBtn);
 
-        // insert before the container
         reportsContainer.parentNode.insertBefore(panel, reportsContainer);
-        // noResults element
         let nr = document.createElement('div');
         nr.id = 'reports-no-results';
         nr.className = 'no-results';
@@ -647,39 +640,32 @@ window.denyReport = async (reportId) => {
         return { searchInput: s, stateSelect: sel, noResultsEl: nr };
     }
 
-    // populate state select with 50 states if it seems empty/minimal
     function populateStateSelect(stateSelect) {
         if (!stateSelect) return;
-        // do not clobber an intentionally custom list: only populate if <=1 meaningful option
         const meaningfulOptions = Array.from(stateSelect.options || []).filter(o => (o.value || '').toString().trim() !== '');
         if (meaningfulOptions.length > 1) return;
-
-        // clear existing and add "All states" as empty value
         stateSelect.innerHTML = '';
         const allOpt = document.createElement('option');
         allOpt.value = '';
         allOpt.textContent = 'All States';
         stateSelect.appendChild(allOpt);
-
         STATES.forEach(st => {
             const opt = document.createElement('option');
-            opt.value = st.abbr;
+            opt.value = st.abbr; // abbr is safer as a value, UI shows full name
             opt.textContent = st.name;
             stateSelect.appendChild(opt);
         });
     }
 
-    // annotate a single card with data-* attributes used for filtering
+    // annotate a single card with data-* attributes used for filtering (adds both abbr and full)
     function annotateCard(card) {
         try {
             if (!card || !card.classList || !card.classList.contains('report-card')) return;
             if (card.getAttribute('data-annotated') === '1') return;
 
-            // name: h2 or h3 or element with id r-<id>
             const nameEl = card.querySelector('h2, h3, [id^="r-"], [id^="p-"]');
             const fullName = nameEl ? nameEl.textContent.trim() : '';
 
-            // location/platform extracted from .meta if present (two spans)
             let location = '', platform = '', occupation = '', employer = '';
             const meta = card.querySelector('.meta');
             if (meta) {
@@ -687,42 +673,41 @@ window.denyReport = async (reportId) => {
                 if (items.length >= 1) location = items[0];
                 if (items.length >= 2) platform = items[1];
             } else {
-                // fallback: first <p> might contain location - occupation
                 const pEls = Array.from(card.querySelectorAll('p'));
                 if (pEls.length) {
                     const first = pEls[0].textContent.trim();
                     if (first.includes(' - ')) {
-                        const [locPart, occPart] = first.split(' - ').map(s => s.trim());
-                        location = locPart;
-                        occupation = occPart;
+                        const parts = first.split(' - ').map(s => s.trim());
+                        location = parts[0] || '';
+                        occupation = parts[1] || occupation;
                     } else {
-                        // if it contains a comma treat as location
                         if (first.includes(',')) location = first;
                     }
                 }
             }
 
-            // employer and occupation lines (try to find <p> elements labeled)
             const labeled = Array.from(card.querySelectorAll('p.small, p')).map(p => p.textContent.trim());
             labeled.forEach(txt => {
                 const lower = txt.toLowerCase();
                 if (!employer && lower.startsWith('employer:')) employer = txt.split(':').slice(1).join(':').trim();
                 else if (!occupation && lower.startsWith('occupation:')) occupation = txt.split(':').slice(1).join(':').trim();
                 else if (!employer && txt.match(/^[A-Z][\w\s&\-\.]{2,}$/) && txt.length < 60 && txt.length > 2 && txt.indexOf(' ') > -1) {
-                    // heuristic: a capitalized phrase might be employer if nothing else matched
                     if (!employer) employer = txt;
                 }
             });
 
-            // description: element with class .desc or longer text node
             let description = '';
             const descEl = card.querySelector('.desc') || card.querySelector('p.desc') || card.querySelector('p');
             if (descEl) description = descEl.textContent.trim();
             else description = card.textContent.trim();
 
-            // attempt to parse state from location; allow explicit data-state if server provided
-            const existingState = (card.getAttribute('data-state') || '').trim();
-            const st = existingState ? { abbr: existingState } : parseStateFromLocation(location || '');
+            // allow server-side data-state-full or data-state already present; otherwise parse location
+            let existingFull = (card.getAttribute('data-state-full') || '').trim();
+            let existingAbbr = (card.getAttribute('data-state') || '').trim();
+
+            const parsed = parseStateFromLocation(location || '');
+            if (!existingAbbr && parsed && parsed.abbr) existingAbbr = parsed.abbr;
+            if (!existingFull && parsed && parsed.name) existingFull = parsed.name;
 
             if (fullName) card.setAttribute('data-fullname', fullName);
             if (location) card.setAttribute('data-location', location);
@@ -730,40 +715,77 @@ window.denyReport = async (reportId) => {
             if (employer) card.setAttribute('data-employer', employer);
             if (platform) card.setAttribute('data-platform', platform);
             if (description) card.setAttribute('data-description', description);
-            if (st && st.abbr) card.setAttribute('data-state', st.abbr);
+            if (existingAbbr) card.setAttribute('data-state', existingAbbr);
             else if (!card.hasAttribute('data-state')) card.setAttribute('data-state', '');
+            if (existingFull) card.setAttribute('data-state-full', existingFull);
+            else if (!card.hasAttribute('data-state-full')) card.setAttribute('data-state-full', '');
             card.setAttribute('data-annotated', '1');
         } catch (e) {
             console.warn('annotateCard error', e);
         }
     }
 
-    // filter logic
+    // derive desired abbr and name from selection value (supports both abbr and full name)
+    function normalizeSelectedState(value) {
+        if (!value) return { abbr: '', name: '' };
+        const v = ('' + value).trim();
+        if (v.length === 2) {
+            const found = STATES.find(s => s.abbr.toLowerCase() === v.toLowerCase());
+            return found ? { abbr: found.abbr, name: found.name } : { abbr: v.toUpperCase(), name: '' };
+        }
+        // might be full name or abbr spelled out (e.g., "Wyoming")
+        const byName = STATES.find(s => s.name.toLowerCase() === v.toLowerCase());
+        if (byName) return { abbr: byName.abbr, name: byName.name };
+        // also accept if value is a full name but casing different, or if value is the display text in option but value is abbr
+        const byAbbr = STATES.find(s => s.abbr.toLowerCase() === v.toLowerCase());
+        if (byAbbr) return { abbr: byAbbr.abbr, name: byAbbr.name };
+        // fallback: return string in both fields so we can compare against full name
+        return { abbr: '', name: v };
+    }
+
+    // main filtering function (uses all report cards on the page)
     function filterReports() {
-        const container = getReportsContainer();
-        if (!container) return;
-        // resolve controls (prefer existing ids used in page)
         const searchInput = document.getElementById('reports-search') || document.getElementById('reports-search-input');
         const stateSelect = document.getElementById('reports-state') || document.getElementById('reports-state-select');
         const noResults = document.getElementById('no-results') || document.getElementById('reports-no-results') || document.getElementById('reports-no-results');
 
         const q = norm(searchInput && searchInput.value);
-        let stateVal = '';
-        if (stateSelect) {
-            stateVal = (stateSelect.value || '').toString().trim();
-            // handle legacy option value 'ALL' from server template: treat it as empty
-            if (stateVal.toUpperCase() === 'ALL') stateVal = '';
-        }
+        const rawState = (stateSelect && (stateSelect.value || '') ) || '';
+        // handle server template that used value "ALL"
+        const normalizedRawState = ('' + rawState).trim().toUpperCase() === 'ALL' ? '' : rawState;
+        const desired = normalizeSelectedState(normalizedRawState);
 
-        const cards = Array.from(container.querySelectorAll('.report-card'));
+        const cards = allReportCards();
         let visible = 0;
+
         cards.forEach(card => {
-            annotateCard(card); // ensure attributes exist
+            annotateCard(card);
             let show = true;
-            if (stateVal) {
-                const cs = (card.getAttribute('data-state') || '').toString().trim().toUpperCase();
-                if (!cs || cs !== stateVal.toUpperCase()) show = false;
+
+            // state filtering: if a state is chosen, only show exact matches
+            if (desired && (desired.abbr || desired.name)) {
+                const csAbbr = (card.getAttribute('data-state') || '').toString().trim().toUpperCase();
+                const csFull = (card.getAttribute('data-state-full') || '').toString().trim().toLowerCase();
+                const desiredAbbr = (desired.abbr || '').toString().trim().toUpperCase();
+                const desiredName = (desired.name || '').toString().trim().toLowerCase();
+
+                // show card only if it matches abbr OR matches full name
+                const abbrMatch = desiredAbbr && csAbbr && csAbbr === desiredAbbr;
+                const nameMatch = desiredName && csFull && csFull === desiredName;
+
+                // Also accept if either location text contains the full name (defensive)
+                let fallbackMatch = false;
+                if (!abbrMatch && !nameMatch) {
+                    const loc = (card.getAttribute('data-location') || '').toString().trim().toLowerCase();
+                    if (desiredName && loc && loc.includes(desiredName)) fallbackMatch = true;
+                }
+
+                if (!(abbrMatch || nameMatch || fallbackMatch)) {
+                    show = false;
+                }
             }
+
+            // free-text filtering
             if (q) {
                 const fields = [
                     card.getAttribute('data-fullname') || '',
@@ -775,6 +797,7 @@ window.denyReport = async (reportId) => {
                 ].map(norm).join(' ');
                 if (!fields.includes(q)) show = false;
             }
+
             if (show) {
                 card.style.display = '';
                 visible++;
@@ -788,58 +811,56 @@ window.denyReport = async (reportId) => {
         }
     }
 
-    // wire mutation observer to keep annotations up to date and re-filter
+    // observe DOM for added report-cards and re-run annotate+filter
     function wireObserver() {
-        const container = getReportsContainer();
-        if (!container) return;
-        // annotate existing
-        Array.from(container.querySelectorAll('.report-card')).forEach(annotateCard);
+        // annotate existing immediately
+        allReportCards().forEach(annotateCard);
 
-        // create observer
-        const mo = new MutationObserver((mutations) => {
-            let changed = false;
+        const observer = new MutationObserver(mutations => {
+            let relevant = false;
             for (const m of mutations) {
-                if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
+                if (m.addedNodes && m.addedNodes.length) {
                     for (const n of m.addedNodes) {
                         if (n.nodeType === 1 && (n.matches && n.matches('.report-card') || n.querySelector && n.querySelector('.report-card'))) {
-                            changed = true; break;
+                            relevant = true; break;
                         }
                     }
                 }
                 if (m.type === 'attributes' && m.target && m.target.matches && m.target.matches('.report-card')) {
-                    changed = true;
+                    relevant = true; break;
                 }
-                if (changed) break;
+                if (relevant) break;
             }
-            if (changed) {
-                // annotate new cards then filter
+            if (relevant) {
                 setTimeout(() => {
-                    Array.from(container.querySelectorAll('.report-card')).forEach(annotateCard);
+                    allReportCards().forEach(annotateCard);
                     filterReports();
                 }, 40);
             }
         });
-        mo.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class'] });
-        // store reference
-        window.__reports_filter_observer = mo;
+
+        const target = document.body;
+        observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'class'] });
+        window.__reports_filter_observer_2 = observer;
     }
 
-    // Initialize: find/create controls, populate state select, wire events, observer, initial filter
     function init() {
         const container = getReportsContainer();
         if (!container) return;
         const controls = findControlsOrCreate();
         if (!controls) return;
-        if (controls.stateSelect) populateStateSelect(controls.stateSelect);
-        // If server rendered first option value 'ALL', normalize it to ''
-        if (controls.stateSelect && controls.stateSelect.options && controls.stateSelect.options.length) {
-            const first = controls.stateSelect.options[0];
+        const stateEl = controls.stateSelect || document.getElementById('reports-state') || document.getElementById('reports-state-select');
+        populateStateSelect(stateEl);
+
+        // normalize server-side "ALL" first option if present
+        if (stateEl && stateEl.options && stateEl.options.length) {
+            const first = stateEl.options[0];
             if (first && first.value && first.value.toUpperCase() === 'ALL') first.value = '';
         }
 
-        // attach input handlers (debounced)
+        // wire events
         const searchEl = controls.searchInput || document.getElementById('reports-search') || document.getElementById('reports-search-input');
-        const stateEl = controls.stateSelect || document.getElementById('reports-state') || document.getElementById('reports-state-select');
+        const stateSelect = controls.stateSelect || document.getElementById('reports-state') || document.getElementById('reports-state-select');
 
         function debounce(fn, ms) {
             let t;
@@ -847,30 +868,19 @@ window.denyReport = async (reportId) => {
         }
         const debouncedFilter = debounce(filterReports, 160);
 
-        if (searchEl) {
-            searchEl.addEventListener('input', debouncedFilter);
-        }
-        if (stateEl) {
-            stateEl.addEventListener('change', filterReports);
-        }
+        if (searchEl) searchEl.addEventListener('input', debouncedFilter);
+        if (stateSelect) stateSelect.addEventListener('change', filterReports);
+        if (searchEl) searchEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); filterReports(); } });
 
-        // also support pressing Enter on search to immediately filter
-        if (searchEl) {
-            searchEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); filterReports(); } });
-        }
-
-        // initial annotate & filter
+        // initial run
         setTimeout(() => {
-            Array.from(container.querySelectorAll('.report-card')).forEach(annotateCard);
+            allReportCards().forEach(annotateCard);
             filterReports();
         }, 240);
 
         wireObserver();
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        setTimeout(init, 10);
-    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else setTimeout(init, 10);
 })();
